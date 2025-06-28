@@ -1,0 +1,481 @@
+---
+
+- name: Run application playbooks from user repository
+  hosts: localhost
+  gather_facts: no
+  vars:
+    # This is the directory of the user's cloned git repo, passed from the wrapper script.
+    # e.g., /var/ansible-repo
+    user_repo_dir: "overridden-by-command-line"
+    # Run mode: "full" or "changes"
+    run_mode: "full"
+    # Comma-separated list of changed directories (only used in changes mode)
+    changed_dirs: ""
+    env_vars: {}
+    direct_quadlet_files: { results: [] }
+    template_quadlet_files: { results: [] }
+  tasks:
+    - name: Show run mode
+      debug:
+        msg: "Running in {{ run_mode }} mode{{ (run_mode == 'changes' and changed_dirs != '') | ternary(' for directories: ' + changed_dirs, '') }}"
+
+    - name: Find all task.yml files in user repository
+      find:
+        paths: "{{ user_repo_dir }}"
+        patterns: "task.yml"
+        recurse: true
+        depth: 2
+      register: all_task_files
+
+    - name: Filter task files based on run mode
+      set_fact:
+        filtered_task_files: >-
+          {%- if run_mode == 'full' -%}
+            {{ all_task_files.files }}
+          {%- elif run_mode == 'changes' and changed_dirs != '' -%}
+            {%- set changed_list = changed_dirs.split(',') | map('trim') | list -%}
+            {{ all_task_files.files | selectattr('path', 'match', '.*(' + changed_list | join('|') + ')/.*') | list }}
+          {%- else -%}
+            []
+          {%- endif -%}
+
+    - name: Show found and filtered task files
+      debug:
+        msg: 
+          - "Found {{ all_task_files.files | length }} total task files"
+          - "Running {{ filtered_task_files | length }} task files"
+          - "Task file paths: {{ filtered_task_files | map(attribute='path') | list }}"
+
+    - name: Run filtered application tasks
+      include_tasks: "{{ item.path }}"
+      loop: "{{ filtered_task_files }}"
+      when: filtered_task_files | length > 0
+
+    - name: Debug overall state before quadlets processing
+      debug:
+        msg:
+          - "Run mode: {{ run_mode }}"
+          - "User repo dir: {{ user_repo_dir }}"
+          - "Changed dirs: {{ changed_dirs }}"
+
+    # ===== SYSTEM QUADLETS PROCESSING =====
+
+    - name: Find system-quadlets directories in user repository
+      find:
+        paths: "{{ user_repo_dir }}"
+        patterns: "system-quadlets"
+        file_type: directory
+        recurse: true
+        depth: 2
+      register: all_system_quadlets_dirs
+
+    - name: Filter system-quadlets directories based on run mode
+      set_fact:
+        filtered_system_quadlets_dirs: >-
+          {%- if run_mode == 'full' -%}
+            {{ all_system_quadlets_dirs.files }}
+          {%- elif run_mode == 'changes' and changed_dirs != '' -%}
+            {%- set changed_list = changed_dirs.split(',') | map('trim') | list -%}
+            {{ all_system_quadlets_dirs.files | selectattr('path', 'match', '.*(' + changed_list | join('|') + ')$') | list }}
+          {%- else -%}
+            []
+          {%- endif -%}
+
+    - name: Show found and filtered system-quadlets directories
+      debug:
+        msg: 
+          - "Found {{ all_system_quadlets_dirs.files | length }} total system-quadlets directories"
+          - "Processing {{ filtered_system_quadlets_dirs | length }} system-quadlets directories"
+          - "System-quadlets directory paths: {{ filtered_system_quadlets_dirs | map(attribute='path') | list }}"
+
+    # ===== USER QUADLETS PROCESSING =====
+
+    - name: Find user-quadlets directory in user repository
+      find:
+        paths: "{{ user_repo_dir }}"
+        patterns: "user-quadlets"
+        file_type: directory
+        recurse: true
+        depth: 2
+      register: user_quadlets_base_dirs
+
+    - name: Find all user subdirectories in user-quadlets
+      find:
+        paths: "{{ item.path }}"
+        file_type: directory
+        depth: 1
+      register: all_user_quadlets_dirs
+      loop: "{{ user_quadlets_base_dirs.files }}"
+      when: user_quadlets_base_dirs.files | length > 0
+
+    - name: Filter user-quadlets directories based on run mode
+      set_fact:
+        filtered_user_quadlets_dirs: >-
+          {%- if run_mode == 'full' -%}
+            {{ all_user_quadlets_dirs.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}
+          {%- elif run_mode == 'changes' and changed_dirs != '' -%}
+            {%- set changed_list = changed_dirs.split(',') | map('trim') | list -%}
+            {{ all_user_quadlets_dirs.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | selectattr('path', 'match', '.*(' + changed_list | join('|') + ')$') | list }}
+          {%- else -%}
+            []
+          {%- endif -%}
+
+    - name: Show found and filtered user-quadlets directories
+      debug:
+        msg: 
+          - "Found {{ all_user_quadlets_dirs.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length }} total user-quadlets directories"
+          - "Processing {{ filtered_user_quadlets_dirs | length }} user-quadlets directories"
+          - "User-quadlets directory paths: {{ filtered_user_quadlets_dirs | map(attribute='path') | list }}"
+
+    # ===== VAULT PROCESSING =====
+
+    - name: Find vault.yml files in filtered system-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: "vault.yml"
+        recurse: false
+      register: system_vault_files
+      loop: "{{ filtered_system_quadlets_dirs }}"
+      when: filtered_system_quadlets_dirs | length > 0
+
+    - name: Find vault.yml files in filtered user-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: "vault.yml"
+        recurse: false
+      register: user_vault_files
+      loop: "{{ filtered_user_quadlets_dirs }}"
+      when: filtered_user_quadlets_dirs | length > 0
+
+    - name: Load vault variables from system-quadlets directories
+      include_vars:
+        file: "{{ vault_file.path }}"
+        name: "system_vault_vars_{{ ansible_loop.index0 }}"
+      loop: "{{ system_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
+      loop_control:
+        extended: yes
+        loop_var: vault_file
+      ignore_errors: yes
+      when: system_vault_files.results is defined
+
+    - name: Load vault variables from user-quadlets directories
+      include_vars:
+        file: "{{ user_vault_file.path }}"
+        name: "user_vault_vars_{{ ansible_loop.index0 }}"
+      loop: "{{ user_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
+      loop_control:
+        extended: yes
+        loop_var: user_vault_file
+      ignore_errors: yes
+      when: user_vault_files.results is defined
+
+    - name: Merge all vault variables into env_vars
+      set_fact:
+        env_vars: "{{ env_vars | combine(vars['system_vault_vars_' + vault_index | string] | default({})) }}"
+      loop: "{{ range(system_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
+      loop_control:
+        loop_var: vault_index
+      when: system_vault_files.results is defined
+
+    - name: Merge user vault variables into env_vars
+      set_fact:
+        env_vars: "{{ env_vars | combine(vars['user_vault_vars_' + user_vault_index | string] | default({})) }}"
+      loop: "{{ range(user_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
+      loop_control:
+        loop_var: user_vault_index
+      when: user_vault_files.results is defined
+
+    # ===== SYSTEM QUADLETS FILES PROCESSING =====
+
+    - name: Find system quadlet files (direct copy) in filtered system-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: 
+          - "*.container"
+          - "*.build"
+          - "*.kube"
+          - "*.network"
+          - "*.pod"
+          - "*.volume"
+          - "*.image"
+          - "*.env"
+        recurse: false
+      register: system_direct_quadlet_files
+      loop: "{{ filtered_system_quadlets_dirs }}"
+      when: filtered_system_quadlets_dirs | length > 0
+
+    - name: Find system quadlet template files (.j2) in filtered system-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: 
+          - "*.container.j2"
+          - "*.build.j2"
+          - "*.kube.j2"
+          - "*.network.j2"
+          - "*.pod.j2"
+          - "*.volume.j2"
+          - "*.image.j2"
+          - "*.env.j2"
+        recurse: false
+      register: system_template_quadlet_files
+      loop: "{{ filtered_system_quadlets_dirs }}"
+      when: filtered_system_quadlets_dirs | length > 0
+
+    - name: Show found system quadlet files
+      debug:
+        msg:
+          - "Found system direct quadlet files: {{ system_direct_quadlet_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | map(attribute='path') | list }}"
+          - "Found system template quadlet files: {{ system_template_quadlet_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | map(attribute='path') | list }}"
+
+    - name: Copy system quadlet files directly to /etc/containers/systemd
+      become: yes
+      copy:
+        src: "{{ quadlet_file.1.path }}"
+        dest: "/etc/containers/systemd/{{ quadlet_file.1.path | basename }}"
+        mode: '0400'
+      loop: "{{ system_direct_quadlet_files.results | selectattr('files', 'defined') | subelements('files') }}"
+      loop_control:
+        loop_var: quadlet_file
+      when: system_direct_quadlet_files.results is defined
+      notify: reload systemd daemon
+
+    - name: Process system quadlet template files and copy to /etc/containers/systemd
+      become: yes
+      template:
+        src: "{{ template_file.1.path }}"
+        dest: "/etc/containers/systemd/{{ template_file.1.path | basename | regex_replace('\\.j2$', '') }}"
+        mode: '0400'
+      loop: "{{ system_template_quadlet_files.results | selectattr('files', 'defined') | subelements('files') }}"
+      loop_control:
+        loop_var: template_file
+      when: 
+        - system_template_quadlet_files.results is defined
+        - env_vars is defined
+      notify: reload systemd daemon
+
+    # ===== USER QUADLETS FILES PROCESSING =====
+
+    - name: Extract usernames from user-quadlets directories
+      set_fact:
+        user_quadlet_users: "{{ filtered_user_quadlets_dirs | map(attribute='path') | map('basename') | list }}"
+
+    - name: Check if users exist for user-quadlets processing
+      command: getent passwd "{{ item }}"
+      register: user_existence_check
+      loop: "{{ user_quadlet_users }}"
+      ignore_errors: yes
+      failed_when: false
+      changed_when: false
+      when: user_quadlet_users | length > 0
+
+    - name: Create list of valid users (those that exist on the system)
+      set_fact:
+        valid_users: "{{ user_existence_check.results | selectattr('rc', 'equalto', 0) | map(attribute='item') | list }}"
+      when: user_existence_check.results is defined
+
+    - name: Show user validation results
+      debug:
+        msg:
+          - "Found {{ user_quadlet_users | length }} user-quadlets directories"
+          - "Valid users (exist on system): {{ valid_users | default([]) }}"
+          - "Skipped users (do not exist): {{ user_quadlet_users | difference(valid_users | default([])) }}"
+
+    - name: Filter user-quadlets directories to only valid users
+      set_fact:
+        valid_user_quadlets_dirs: "{{ filtered_user_quadlets_dirs | selectattr('path', 'match', '.*(' + (valid_users | default([]) | join('|')) + ')$') | list }}"
+      when: valid_users is defined and valid_users | length > 0
+
+    - name: Find user quadlet files (direct copy) in valid user-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: 
+          - "*.container"
+          - "*.build"
+          - "*.kube"
+          - "*.network"
+          - "*.pod"
+          - "*.volume"
+          - "*.image"
+          - "*.env"
+        recurse: false
+      register: user_direct_quadlet_files
+      loop: "{{ valid_user_quadlets_dirs | default([]) }}"
+      when: valid_user_quadlets_dirs is defined and valid_user_quadlets_dirs | length > 0
+
+    - name: Find user quadlet template files (.j2) in valid user-quadlets directories
+      find:
+        paths: "{{ item.path }}"
+        patterns: 
+          - "*.container.j2"
+          - "*.build.j2"
+          - "*.kube.j2"
+          - "*.network.j2"
+          - "*.pod.j2"
+          - "*.volume.j2"
+          - "*.image.j2"
+          - "*.env.j2"
+        recurse: false
+      register: user_template_quadlet_files
+      loop: "{{ valid_user_quadlets_dirs | default([]) }}"
+      when: valid_user_quadlets_dirs is defined and valid_user_quadlets_dirs | length > 0
+
+    - name: Show found user quadlet files
+      debug:
+        msg:
+          - "Found user direct quadlet files: {{ user_direct_quadlet_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | map(attribute='path') | list }}"
+          - "Found user template quadlet files: {{ user_template_quadlet_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | map(attribute='path') | list }}"
+
+    - name: Ensure user .config/containers/systemd directories exist
+      become: yes
+      file:
+        path: "/var/home/{{ item }}/.config/containers/systemd"
+        state: directory
+        owner: "{{ item }}"
+        group: "{{ item }}"
+        mode: '0751'
+      loop: "{{ valid_users | default([]) }}"
+      when: valid_users is defined and valid_users | length > 0
+
+    - name: Copy user quadlet files to user directories
+      become: yes
+      copy:
+        src: "{{ user_quadlet.1.path }}"
+        dest: "/var/home/{{ user_quadlet.1.path | dirname | basename }}/.config/containers/systemd/{{ user_quadlet.1.path | basename }}"
+        owner: "{{ user_quadlet.1.path | dirname | basename }}"
+        group: "{{ user_quadlet.1.path | dirname | basename }}"
+        mode: '0440'
+      loop: "{{ user_direct_quadlet_files.results | selectattr('files', 'defined') | subelements('files') }}"
+      loop_control:
+        loop_var: user_quadlet
+      when: user_direct_quadlet_files.results is defined
+      notify: reload user systemd daemons
+
+    - name: Process user quadlet template files and copy to user directories
+      become: yes
+      template:
+        src: "{{ user_template.1.path }}"
+        dest: "/var/home/{{ user_template.1.path | dirname | basename }}/.config/containers/systemd/{{ user_template.1.path | basename | regex_replace('\\.j2$', '') }}"
+        owner: "{{ user_template.1.path | dirname | basename }}"
+        group: "{{ user_template.1.path | dirname | basename }}"
+        mode: '0440'
+      loop: "{{ user_template_quadlet_files.results | selectattr('files', 'defined') | subelements('files') }}"
+      loop_control:
+        loop_var: user_template
+      when: 
+        - user_template_quadlet_files.results is defined
+        - env_vars is defined
+      notify: reload user systemd daemons
+
+    - name: Enable lingering for users with quadlets
+      become: yes
+      command: loginctl enable-linger {{ item }}
+      loop: "{{ valid_users | default([]) }}"
+      when: valid_users is defined and valid_users | length > 0
+      changed_when: false  # loginctl enable-linger is idempotent
+
+    - name: Force handlers to run before service startup
+      meta: flush_handlers
+
+    # ===== AUTO-START QUADLET SERVICES =====
+
+    - name: Find system quadlet files for auto-start
+      find:
+        paths: "/etc/containers/systemd"
+        patterns: 
+          - "*.container"
+          - "*.pod"
+        recurse: false
+      register: system_quadlet_files_autostart
+
+    - name: Extract system service names from quadlet files
+      set_fact:
+        system_quadlet_services: "{{ system_quadlet_files_autostart.files | map(attribute='path') | map('basename') | map('regex_replace', '\\.(container|pod)$', '') | list }}"
+
+    - name: Show discovered system quadlet services for auto-start
+      debug:
+        msg: "Found system quadlet services for auto-start: {{ system_quadlet_services }}"
+
+    - name: Start and enable system quadlet services
+      become: yes
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+        daemon_reload: no
+      loop: "{{ system_quadlet_services }}"
+      when: system_quadlet_services | length > 0
+      ignore_errors: yes  # Some services might already be running or have dependencies
+
+    - name: Find all user home directories for quadlet auto-start
+      find:
+        paths: "/var/home"
+        file_type: directory
+        depth: 1
+      register: user_home_dirs_autostart
+      ignore_errors: yes
+
+    - name: Find user quadlet files for auto-start
+      find:
+        paths: "{{ item.path }}/.config/containers/systemd"
+        patterns: 
+          - "*.container"
+          - "*.pod"
+        recurse: false
+      register: user_quadlet_files_autostart
+      loop: "{{ user_home_dirs_autostart.files | default([]) }}"
+      when: user_home_dirs_autostart.files is defined
+      ignore_errors: yes
+
+    - name: Show discovered user quadlet services for auto-start
+      debug:
+        msg: "Found user quadlet services for auto-start: {{ user_quadlet_files_autostart.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | map(attribute='path') | map('basename') | map('regex_replace', '\\.(container|pod)$', '') | list }} for users: {{ user_quadlet_files_autostart.results | selectattr('files', 'defined') | map(attribute='item') | map(attribute='path') | map('basename') | list }}"
+      when: user_quadlet_files_autostart.results is defined
+
+    - name: Start user quadlet services
+      become: yes
+      become_user: "{{ username }}"
+      systemd:
+        name: "{{ service_name }}"
+        state: started
+        enabled: yes
+        scope: user
+        daemon_reload: no
+      vars:
+        username: "{{ user_result.0.item.path | basename }}"
+        service_name: "{{ user_result.1.path | basename | regex_replace('\\.(container|pod)$', '') }}"
+      loop: "{{ user_quadlet_files_autostart.results | selectattr('files', 'defined') | subelements('files') | list }}"
+      loop_control:
+        loop_var: user_result
+        label: "{{ username }}/{{ service_name }}"
+      when: user_quadlet_files_autostart.results is defined
+      ignore_errors: yes
+
+    - name: Check if finally/finally.yml exists
+      stat:
+        path: "{{ user_repo_dir }}/finally/finally.yml"
+      register: finally_task_file
+
+    - name: Run finally tasks (if any changes were processed)
+      include_tasks: "{{ user_repo_dir }}/finally/finally.yml"
+      when:
+        - finally_task_file.stat.exists
+        - (run_mode == 'full') or (run_mode == 'changes' and changed_dirs != '')
+
+    - name: Show completion message
+      debug:
+        msg: "Completed {{ run_mode }} run: {{ filtered_task_files | length }} tasks, {{ filtered_system_quadlets_dirs | length }} system-quadlets, and {{ valid_users | default([]) | length }} user-quadlets processed{{ finally_task_file.stat.exists | ternary(' (including finally tasks)', '') }}"
+
+  handlers:
+    - name: reload systemd daemon
+      become: yes
+      systemd:
+        daemon_reload: yes
+
+    - name: reload user systemd daemons
+      become: yes
+      become_user: "{{ item }}"
+      systemd:
+        daemon_reload: yes
+        scope: user
+      loop: "{{ valid_users | default([]) }}"
+      when: valid_users is defined and valid_users | length > 0

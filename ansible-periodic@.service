@@ -1,0 +1,20 @@
+[Unit]
+Description=Run Ansible Periodic Playbooks
+After=network-online.target cloud-init.service cloud-config.service cloud-final.service
+Wants=network-online.target
+Requires=cloud-final.service
+
+[Service]
+Type=oneshot
+Environment=ANSIBLE_LOCALHOST_WARNING=false
+Environment=ANSIBLE_INVENTORY_UNPARSED_WARNING=false
+Environment=HOME=/root
+Environment=USER=root
+Restart=on-failure
+RestartSec=120
+# This service executes the periodic script with mode passed as parameter
+# Usage: systemctl start ansible-periodic@changes.service
+#        systemctl start ansible-periodic@full.service
+ExecStart=/usr/libexec/ansible-periodic/run-ansible-periodic.sh %i
+StandardOutput=journal
+StandardError=journal 
