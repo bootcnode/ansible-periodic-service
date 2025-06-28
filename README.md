@@ -128,7 +128,140 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
        └── finally.yml
    ```
 
-5. **Adjust schedules** by editing timer files in `/usr/lib/systemd/system/`
+5. **Adjust schedules** using systemd override files (see Customizing Schedules below)
+
+## Customizing Schedules
+
+Instead of editing the package-installed timer files directly, use systemd override files to customize schedules. This ensures your changes persist through package upgrades.
+
+### Method 1: Using `systemctl edit` (Recommended)
+
+```bash
+# Customize the changes timer (runs every 15 minutes by default)
+sudo systemctl edit ansible-periodic.timer
+
+# Customize the full timer (runs daily at 3 AM by default)  
+sudo systemctl edit ansible-periodic-full.timer
+```
+
+This opens an editor where you can add override settings:
+
+```ini
+[Timer]
+# Change changes mode to run every 5 minutes instead of 15
+OnUnitActiveSec=5min
+OnBootSec=2min
+
+# Reduce randomized delay
+RandomizedDelaySec=1min
+```
+
+### Method 2: Manual Override Files
+
+Create override directories and files manually:
+
+```bash
+# Create override directory for changes timer
+sudo mkdir -p /etc/systemd/system/ansible-periodic.timer.d
+
+# Create override configuration
+sudo tee /etc/systemd/system/ansible-periodic.timer.d/schedule.conf << EOF
+[Timer]
+# Run every 10 minutes instead of 15
+OnUnitActiveSec=10min
+OnBootSec=3min
+RandomizedDelaySec=2min
+EOF
+
+# Create override for full timer  
+sudo mkdir -p /etc/systemd/system/ansible-periodic-full.timer.d
+
+sudo tee /etc/systemd/system/ansible-periodic-full.timer.d/schedule.conf << EOF
+[Timer]
+# Run at 2 AM instead of 3 AM
+OnCalendar=*-*-* 02:00:00
+# Start 15 minutes after boot instead of 30
+OnBootSec=15min
+# Reduce randomized delay to 1 hour
+RandomizedDelaySec=1h
+EOF
+```
+
+### Apply Changes
+
+After creating override files, reload systemd and restart timers:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart ansible-periodic.timer
+sudo systemctl restart ansible-periodic-full.timer
+```
+
+### View Effective Configuration
+
+Check what settings are actually being used:
+
+```bash
+# Show effective timer configuration
+systemctl cat ansible-periodic.timer
+systemctl cat ansible-periodic-full.timer
+
+# Show timer status and next run times
+systemctl list-timers ansible-periodic*
+```
+
+### Common Schedule Examples
+
+**More Frequent Changes Mode:**
+```ini
+[Timer]
+OnUnitActiveSec=5min
+OnBootSec=1min
+RandomizedDelaySec=30s
+```
+
+**Different Daily Time:**
+```ini
+[Timer]
+OnCalendar=*-*-* 01:30:00
+OnBootSec=20min
+RandomizedDelaySec=30min
+```
+
+**Weekly Full Runs:**
+```ini
+[Timer]
+OnCalendar=Sun *-*-* 03:00:00
+OnBootSec=30min
+RandomizedDelaySec=2h
+```
+
+**Disable a Timer:**
+```ini
+[Timer]
+OnCalendar=
+OnUnitActiveSec=
+OnBootSec=
+```
+
+### Remove Overrides
+
+To remove customizations and return to package defaults:
+
+```bash
+# Remove specific override files
+sudo rm -rf /etc/systemd/system/ansible-periodic.timer.d
+sudo rm -rf /etc/systemd/system/ansible-periodic-full.timer.d
+
+# Or use systemctl revert
+sudo systemctl revert ansible-periodic.timer
+sudo systemctl revert ansible-periodic-full.timer
+
+# Reload and restart
+sudo systemctl daemon-reload
+sudo systemctl restart ansible-periodic.timer
+sudo systemctl restart ansible-periodic-full.timer
+```
 
 ## Development
 
