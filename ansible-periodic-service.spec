@@ -1,6 +1,6 @@
 Name:           ansible-periodic-service
 Version:        1.0.0
-Release:        1%{?dist}
+Release:        1
 Summary:        Systemd service for running Ansible playbooks periodically
 License:        MIT
 Group:          System Environment/Daemons
@@ -21,7 +21,8 @@ applications and system configuration. Features include:
 - Automatic service startup and user lingering
 
 %prep
-# No prep needed for noarch package
+# Copy source files to build directory
+cp %{_sourcedir}/* .
 
 %build
 # No build needed for noarch package
