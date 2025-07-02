@@ -3,6 +3,9 @@ VERSION = 1.0.0
 RELEASE = 1
 ARCH = noarch
 
+# Container image name
+CONTAINER_IMAGE = ansible-periodic-builder
+
 # RPM build directories
 TOPDIR = $(shell pwd)/rpmbuild
 SOURCEDIR = $(TOPDIR)/SOURCES
@@ -23,9 +26,14 @@ SPEC_FILE = $(SPECDIR)/ansible-periodic-service.spec
 DEBDIR = $(shell pwd)/debbuild
 DEBIAN_PKG_DIR = $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)
 
-.PHONY: all clean rpm srpm prepare install deb
+.PHONY: all clean rpm srpm prepare install deb build-container
 
 all: rpm deb
+
+# Build the container image
+build-container:
+	@echo "Building container image..."
+	podman build -t $(CONTAINER_IMAGE) .
 
 # Create RPM build directory structure
 prepare:
@@ -33,28 +41,27 @@ prepare:
 	mkdir -p $(SOURCEDIR) $(SPECDIR) $(RPMDIR) $(SRPMDIR) $(BUILDDIR)
 	@echo "Source files are already in place in $(SOURCEDIR)"
 
-# Build source RPM
-srpm: prepare
-	@echo "Building source RPM..."
-	rpmbuild --define "_topdir $(TOPDIR)" -bs $(SPEC_FILE)
+# Build source RPM using container
+srpm: build-container prepare
+	@echo "Building source RPM in container..."
+	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
+		rpmbuild --define "_topdir /workspace/rpmbuild" -bs rpmbuild/SPECS/ansible-periodic-service.spec
 
-# Build binary RPM
-rpm: srpm
-	@echo "Building binary RPM..."
-	rpmbuild --define "_topdir $(TOPDIR)" --rebuild $(SRPMDIR)/$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).src.rpm
+# Build binary RPM using container
+rpm: build-container prepare
+	@echo "Building binary RPM in container..."
+	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
+		sh -c "rpmbuild --define '_topdir /workspace/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
+		       rpmbuild --define '_topdir /workspace/rpmbuild' --rebuild rpmbuild/SRPMS/$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).src.rpm"
 
-# Install the built RPM (requires sudo)
-install: rpm
-	@echo "Installing RPM..."
-	sudo dnf install -y $(RPMDIR)/$(ARCH)/$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).$(ARCH).rpm
+# Build DEB package using container
+deb: build-container
+	@echo "Building DEB package in container..."
+	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
+		make deb-internal
 
-# Install the built DEB (requires sudo)
-install-deb: deb
-	@echo "Installing DEB..."
-	sudo dpkg -i $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb || sudo apt-get install -f -y
-
-# Build DEB package
-deb:
+# Internal DEB build target (runs inside container)
+deb-internal:
 	@echo "Building DEB package..."
 	mkdir -p $(DEBIAN_PKG_DIR)/DEBIAN
 	mkdir -p $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic
@@ -119,6 +126,16 @@ deb:
 	dpkg-deb --build $(DEBIAN_PKG_DIR) $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb
 	@echo "DEB package built: $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb"
 
+# Install the built RPM (requires sudo)
+install: rpm
+	@echo "Installing RPM..."
+	sudo dnf install -y $(RPMDIR)/$(ARCH)/$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).$(ARCH).rpm
+
+# Install the built DEB (requires sudo)
+install-deb: deb
+	@echo "Installing DEB..."
+	sudo dpkg -i $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb || sudo apt-get install -f -y
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
@@ -142,10 +159,11 @@ list-files:
 	@echo "Documentation files:"
 	@for file in $(DOC_FILES); do echo "  $$file"; done
 
-# Validate spec file
-validate:
-	@echo "Validating spec file..."
-	rpmlint $(SPEC_FILE)
+# Validate spec file using container
+validate: build-container
+	@echo "Validating spec file in container..."
+	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
+		rpmlint rpmbuild/SPECS/ansible-periodic-service.spec
 
 # Test install (builds and installs in one step)
 test-install: clean rpm install
@@ -153,17 +171,18 @@ test-install-deb: clean deb install-deb
 
 help:
 	@echo "Available targets:"
-	@echo "  all         - Build both RPM and DEB packages (default)"
-	@echo "  prepare     - Set up build directories and copy files"
-	@echo "  srpm        - Build source RPM"
-	@echo "  rpm         - Build binary RPM"
-	@echo "  deb         - Build DEB package"
-	@echo "  install     - Install the built RPM (requires sudo)"
-	@echo "  install-deb - Install the built DEB (requires sudo)"
-	@echo "  test-install- Clean, build, and install RPM in one step"
+	@echo "  all             - Build both RPM and DEB packages (default)"
+	@echo "  build-container - Build the container image for packaging"
+	@echo "  prepare         - Set up build directories"
+	@echo "  srpm            - Build source RPM using container"
+	@echo "  rpm             - Build binary RPM using container"
+	@echo "  deb             - Build DEB package using container"
+	@echo "  install         - Install the built RPM (requires sudo)"
+	@echo "  install-deb     - Install the built DEB (requires sudo)"
+	@echo "  test-install    - Clean, build, and install RPM in one step"
 	@echo "  test-install-deb - Clean, build, and install DEB in one step"
-	@echo "  clean       - Remove build artifacts (preserves source structure)"
-	@echo "  clean-all   - Remove all build artifacts and directories"
-	@echo "  list-files  - Show files that will be packaged"
-	@echo "  validate    - Validate spec file with rpmlint"
-	@echo "  help        - Show this help message" 
+	@echo "  clean           - Remove build artifacts (preserves source structure)"
+	@echo "  clean-all       - Remove all build artifacts and directories"
+	@echo "  list-files      - Show files that will be packaged"
+	@echo "  validate        - Validate spec file with rpmlint using container"
+	@echo "  help            - Show this help message" 
