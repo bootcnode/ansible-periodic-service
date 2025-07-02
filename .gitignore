@@ -1,2 +1,9 @@
-debbuild/
-rpmbuild/
+# Ignore temporary build artifacts but keep source structure
+rpmbuild/BUILD/
+rpmbuild/BUILDROOT/
+rpmbuild/RPMS/
+rpmbuild/SRPMS/
+
+# Ignore DEB build output
+debbuild/*.deb
+debbuild/ansible-periodic-service_*/

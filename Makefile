@@ -17,7 +17,7 @@ SCRIPT_FILES = run-ansible-periodic.sh
 CONFIG_FILES = ansible-periodic.conf
 PLAYBOOK_FILES = main.yml
 DOC_FILES = example-repo-structure.md
-SPEC_FILE = $(PACKAGE_NAME).spec
+SPEC_FILE = $(SPECDIR)/ansible-periodic-service.spec
 
 # DEB build directories
 DEBDIR = $(shell pwd)/debbuild
@@ -31,13 +31,12 @@ all: rpm deb
 prepare:
 	@echo "Creating RPM build directories..."
 	mkdir -p $(SOURCEDIR) $(SPECDIR) $(RPMDIR) $(SRPMDIR) $(BUILDDIR)
-	cp $(SPEC_FILE) $(SPECDIR)/
-	cp $(SYSTEMD_FILES) $(SCRIPT_FILES) $(CONFIG_FILES) $(PLAYBOOK_FILES) $(DOC_FILES) $(SOURCEDIR)/
+	@echo "Source files are already in place in $(SOURCEDIR)"
 
 # Build source RPM
 srpm: prepare
 	@echo "Building source RPM..."
-	rpmbuild --define "_topdir $(TOPDIR)" -bs $(SPECDIR)/$(SPEC_FILE)
+	rpmbuild --define "_topdir $(TOPDIR)" -bs $(SPEC_FILE)
 
 # Build binary RPM
 rpm: srpm
@@ -66,13 +65,13 @@ deb:
 	mkdir -p $(DEBIAN_PKG_DIR)/var/log/ansible-periodic
 	mkdir -p $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service
 	
-	# Copy files
-	cp $(SCRIPT_FILES) $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/
+	# Copy files from SOURCES directory
+	cp $(SOURCEDIR)/$(SCRIPT_FILES) $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/
 	chmod 755 $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/run-ansible-periodic.sh
-	cp $(SYSTEMD_FILES) $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
-	cp $(CONFIG_FILES) $(DEBIAN_PKG_DIR)/etc/ansible-periodic/
-	cp $(PLAYBOOK_FILES) $(DEBIAN_PKG_DIR)/usr/share/ansible-periodic/playbooks/
-	cp $(DOC_FILES) $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service/
+	cp $(SOURCEDIR)/ansible-periodic@.service $(SOURCEDIR)/ansible-periodic.service $(SOURCEDIR)/ansible-periodic.timer $(SOURCEDIR)/ansible-periodic-full.timer $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
+	cp $(SOURCEDIR)/$(CONFIG_FILES) $(DEBIAN_PKG_DIR)/etc/ansible-periodic/
+	cp $(SOURCEDIR)/$(PLAYBOOK_FILES) $(DEBIAN_PKG_DIR)/usr/share/ansible-periodic/playbooks/
+	cp $(SOURCEDIR)/$(DOC_FILES) $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service/
 	
 	# Create control file
 	echo "Package: $(PACKAGE_NAME)" > $(DEBIAN_PKG_DIR)/DEBIAN/control
@@ -123,6 +122,11 @@ deb:
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."
+	rm -rf $(BUILDDIR) $(RPMDIR) $(SRPMDIR) $(TOPDIR)/BUILDROOT $(DEBDIR)
+
+# Clean everything including source structure
+clean-all:
+	@echo "Cleaning all build artifacts and directories..."
 	rm -rf $(TOPDIR) $(DEBDIR)
 
 # Show what files will be packaged
@@ -158,7 +162,8 @@ help:
 	@echo "  install-deb - Install the built DEB (requires sudo)"
 	@echo "  test-install- Clean, build, and install RPM in one step"
 	@echo "  test-install-deb - Clean, build, and install DEB in one step"
-	@echo "  clean       - Remove build artifacts"
+	@echo "  clean       - Remove build artifacts (preserves source structure)"
+	@echo "  clean-all   - Remove all build artifacts and directories"
 	@echo "  list-files  - Show files that will be packaged"
 	@echo "  validate    - Validate spec file with rpmlint"
 	@echo "  help        - Show this help message" 
