@@ -44,25 +44,34 @@ prepare:
 # Build source RPM using container
 srpm: build-container prepare
 	@echo "Building source RPM in container..."
-	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
-		rpmbuild --define "_topdir /workspace/rpmbuild" -bs rpmbuild/SPECS/ansible-periodic-service.spec
+	podman run --rm -v $(SRPMDIR):/output:Z $(CONTAINER_IMAGE) \
+		sh -c "cd /home/builder/periodic-ansible-service && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
+		       cp rpmbuild/SRPMS/*.src.rpm /output/"
 
 # Build binary RPM using container
 rpm: build-container prepare
 	@echo "Building binary RPM in container..."
-	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
-		sh -c "rpmbuild --define '_topdir /workspace/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
-		       rpmbuild --define '_topdir /workspace/rpmbuild' --rebuild rpmbuild/SRPMS/$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).src.rpm"
+	podman run --rm -v $(RPMDIR):/output:Z -v $(SRPMDIR):/srpms:Z $(CONTAINER_IMAGE) \
+		sh -c "cd /home/builder/periodic-ansible-service && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
+		       cp rpmbuild/SRPMS/*.src.rpm /srpms/ && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' --rebuild rpmbuild/SRPMS/*.src.rpm && \
+		       cp -r rpmbuild/RPMS/* /output/"
 
 # Build DEB package using container
 deb: build-container
 	@echo "Building DEB package in container..."
-	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
-		make deb-internal
+	mkdir -p $(DEBDIR)
+	podman run --rm -v $(DEBDIR):/output:Z $(CONTAINER_IMAGE) \
+		sh -c "cd /home/builder/periodic-ansible-service && \
+		       make deb-internal DEBDIR=/output"
 
 # Internal DEB build target (runs inside container)
 deb-internal:
 	@echo "Building DEB package..."
+	$(eval DEBDIR ?= $(shell pwd)/debbuild)
+	$(eval DEBIAN_PKG_DIR = $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE))
 	mkdir -p $(DEBIAN_PKG_DIR)/DEBIAN
 	mkdir -p $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic
 	mkdir -p $(DEBIAN_PKG_DIR)/usr/lib/systemd/system
@@ -73,12 +82,13 @@ deb-internal:
 	mkdir -p $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service
 	
 	# Copy files from SOURCES directory
-	cp $(SOURCEDIR)/$(SCRIPT_FILES) $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/
+	$(eval CONTAINER_SOURCEDIR = /home/builder/periodic-ansible-service/rpmbuild/SOURCES)
+	cp $(CONTAINER_SOURCEDIR)/$(SCRIPT_FILES) $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/
 	chmod 755 $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/run-ansible-periodic.sh
-	cp $(SOURCEDIR)/ansible-periodic@.service $(SOURCEDIR)/ansible-periodic.service $(SOURCEDIR)/ansible-periodic.timer $(SOURCEDIR)/ansible-periodic-full.timer $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
-	cp $(SOURCEDIR)/$(CONFIG_FILES) $(DEBIAN_PKG_DIR)/etc/ansible-periodic/
-	cp $(SOURCEDIR)/$(PLAYBOOK_FILES) $(DEBIAN_PKG_DIR)/usr/share/ansible-periodic/playbooks/
-	cp $(SOURCEDIR)/$(DOC_FILES) $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service/
+	cp $(CONTAINER_SOURCEDIR)/ansible-periodic@.service $(CONTAINER_SOURCEDIR)/ansible-periodic.service $(CONTAINER_SOURCEDIR)/ansible-periodic.timer $(CONTAINER_SOURCEDIR)/ansible-periodic-full.timer $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
+	cp $(CONTAINER_SOURCEDIR)/$(CONFIG_FILES) $(DEBIAN_PKG_DIR)/etc/ansible-periodic/
+	cp $(CONTAINER_SOURCEDIR)/$(PLAYBOOK_FILES) $(DEBIAN_PKG_DIR)/usr/share/ansible-periodic/playbooks/
+	cp $(CONTAINER_SOURCEDIR)/$(DOC_FILES) $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service/
 	
 	# Create control file
 	echo "Package: $(PACKAGE_NAME)" > $(DEBIAN_PKG_DIR)/DEBIAN/control
@@ -162,8 +172,8 @@ list-files:
 # Validate spec file using container
 validate: build-container
 	@echo "Validating spec file in container..."
-	podman run --rm -v $(shell pwd):/workspace:Z --workdir /workspace $(CONTAINER_IMAGE) \
-		rpmlint rpmbuild/SPECS/ansible-periodic-service.spec
+	podman run --rm $(CONTAINER_IMAGE) \
+		rpmlint /home/builder/periodic-ansible-service/rpmbuild/SPECS/ansible-periodic-service.spec
 
 # Test install (builds and installs in one step)
 test-install: clean rpm install
