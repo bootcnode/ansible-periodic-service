@@ -8,7 +8,7 @@ A systemd-based service that runs Ansible playbooks periodically to manage conta
 **Key Features:**
 - **Task Management**: Finds and executes `task.yml` files from user repositories
 - **Podman Quadlets**: Manages system and user container services via Podman quadlets
-- **Vault Integration**: Loads encrypted variables from `vault.yml` files
+- **Variable Integration**: Loads variables from `vars.yml` files with hierarchical support
 - **Template Processing**: Supports Jinja2 templates for dynamic configuration
 - **User Services**: Manages per-user container services with proper ownership
 - **Service Auto-start**: Automatically starts and enables container services
@@ -106,7 +106,7 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
    - Create `task.yml` files in subdirectories for application tasks
    - Add `system-quadlets/` directories with Podman container configs
    - Add `user-quadlets/USERNAME/` directories for user-specific containers
-   - Include `vault.yml` files for encrypted variables
+   - Include `vars.yml` files for variables (global and per-directory)
    - Use `.j2` templates for dynamic configuration
 
 3. **Modify inventory** at `/etc/ansible-periodic/hosts`
@@ -118,7 +118,7 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
    │   ├── task.yml
    │   └── system-quadlets/
    │       ├── myapp.container
-   │       └── vault.yml
+   │       └── vars.yml
    ├── app2/
    │   ├── task.yml
    │   └── user-quadlets/

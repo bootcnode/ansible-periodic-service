@@ -11,7 +11,7 @@ This file shows how to organize your user repository (default: `/var/ansible-rep
 │   └── system-quadlets/
 │       ├── webapp.container          # Podman container definition
 │       ├── webapp-db.container       # Database container
-│       └── vault.yml                 # Encrypted variables
+│       └── vars.yml                  # Variables for templates
 ├── monitoring/
 │   ├── task.yml
 │   └── system-quadlets/
@@ -21,7 +21,7 @@ This file shows how to organize your user repository (default: `/var/ansible-rep
 │   └── user-quadlets/
 │       ├── alice/
 │       │   ├── personal-app.container
-│       │   └── vault.yml
+│       │   └── vars.yml
 │       └── bob/
 │           └── dev-env.container.j2
 └── finally/
@@ -86,13 +86,55 @@ Restart=always
 WantedBy=multi-user.target
 ```
 
-### vault.yml (Encrypted Variables)
+### vars.yml (Variables)
 ```yaml
 ---
-# Encrypt with: ansible-vault encrypt vault.yml
+# Variables for templates (can be encrypted with ansible-vault if needed)
 database_url: "postgresql://webapp:secret123@localhost/webapp"
 webapp_image: "registry.example.com/webapp:v1.2.3"
 webapp_port: "8443"
+```
+
+## Variable Hierarchy
+
+The ansible-periodic-service supports a hierarchical variable system using `vars.yml` files:
+
+### Global Variables
+Place a `vars.yml` file in the repository root for variables available to all tasks and templates:
+
+```
+/var/ansible-repo/
+├── vars.yml                          # Global variables
+├── webapp/
+│   ├── task.yml
+│   └── vars.yml                      # Overrides global vars
+└── monitoring/
+    ├── task.yml
+    └── system-quadlets/
+        └── vars.yml                  # Overrides global + webapp vars
+```
+
+### Loading Order
+1. **Global vars.yml** (repository root) - loaded first
+2. **Directory-specific vars.yml** - loaded second, overrides global
+3. **Quadlet-specific vars.yml** - loaded last, overrides all previous
+
+### Example Global vars.yml
+```yaml
+---
+# Common settings for all applications
+registry_url: "registry.example.com"
+environment: "production"
+log_level: "info"
+admin_email: "admin@example.com"
+```
+
+### Example Directory vars.yml
+```yaml
+---
+# Webapp-specific overrides
+environment: "staging"  # Overrides global
+webapp_port: "8443"     # New variable
 ```
 
 ### finally/finally.yml (Cleanup Tasks)
@@ -137,6 +179,6 @@ User quadlets are container services that run under specific user accounts:
 1. **Modular organization**: One directory per application/service
 2. **Consistent naming**: Use descriptive names for containers and services
 3. **Template usage**: Use `.j2` templates for dynamic configuration
-4. **Vault security**: Always encrypt sensitive data in `vault.yml` files
+4. **Variable security**: Encrypt sensitive data in `vars.yml` files using ansible-vault when needed
 5. **Testing**: Test quadlets manually before adding to repository
 6. **Dependencies**: Use `After=` and `Requires=` in quadlet files appropriately 

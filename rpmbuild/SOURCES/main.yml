@@ -46,6 +46,65 @@
           - "Running {{ filtered_task_files | length }} task files"
           - "Task file paths: {{ filtered_task_files | map(attribute='path') | list }}"
 
+    # ===== VARIABLE PROCESSING =====
+
+    - name: Find global vars.yml file in user repository root
+      find:
+        paths: "{{ user_repo_dir }}"
+        patterns: "vars.yml"
+        recurse: false
+        depth: 1
+      register: global_vars_file
+
+    - name: Load global variables from user repository root
+      include_vars:
+        file: "{{ global_vars_file.files[0].path }}"
+        name: "global_vars"
+      when: global_vars_file.files | length > 0
+      ignore_errors: yes
+
+    - name: Initialize env_vars with global variables
+      set_fact:
+        env_vars: "{{ global_vars | default({}) }}"
+
+    - name: Find all directory-specific vars.yml files
+      find:
+        paths: "{{ user_repo_dir }}"
+        patterns: "vars.yml"
+        recurse: true
+        depth: 3
+      register: all_vars_files
+
+    - name: Filter out global vars.yml (already loaded)
+      set_fact:
+        directory_vars_files: "{{ all_vars_files.files | rejectattr('path', 'equalto', global_vars_file.files[0].path | default('')) | list }}"
+      when: all_vars_files.files | length > 0
+
+    - name: Load directory-specific variables
+      include_vars:
+        file: "{{ vars_file.path }}"
+        name: "dir_vars_{{ ansible_loop.index0 }}"
+      loop: "{{ directory_vars_files | default([]) }}"
+      loop_control:
+        extended: yes
+        loop_var: vars_file
+      ignore_errors: yes
+
+    - name: Merge directory-specific variables into env_vars
+      set_fact:
+        env_vars: "{{ env_vars | combine(vars['dir_vars_' + vars_index | string] | default({})) }}"
+      loop: "{{ range(directory_vars_files | default([]) | length) | list }}"
+      loop_control:
+        loop_var: vars_index
+
+    - name: Show loaded variables summary
+      debug:
+        msg:
+          - "Global vars.yml found: {{ global_vars_file.files | length > 0 }}"
+          - "Directory vars.yml files found: {{ directory_vars_files | default([]) | length }}"
+          - "Total variables loaded: {{ env_vars.keys() | list | length }}"
+          - "Variable keys: {{ env_vars.keys() | list }}"
+
     - name: Run filtered application tasks
       include_tasks: "{{ item.path }}"
       loop: "{{ filtered_task_files }}"
@@ -127,63 +186,63 @@
           - "Processing {{ filtered_user_quadlets_dirs | length }} user-quadlets directories"
           - "User-quadlets directory paths: {{ filtered_user_quadlets_dirs | map(attribute='path') | list }}"
 
-    # ===== VAULT PROCESSING =====
+    # ===== QUADLET-SPECIFIC VARIABLE PROCESSING =====
 
-    - name: Find vault.yml files in filtered system-quadlets directories
+    - name: Find vars.yml files in filtered system-quadlets directories
       find:
         paths: "{{ item.path }}"
-        patterns: "vault.yml"
+        patterns: "vars.yml"
         recurse: false
-      register: system_vault_files
+      register: system_quadlet_vars_files
       loop: "{{ filtered_system_quadlets_dirs }}"
       when: filtered_system_quadlets_dirs | length > 0
 
-    - name: Find vault.yml files in filtered user-quadlets directories
+    - name: Find vars.yml files in filtered user-quadlets directories
       find:
         paths: "{{ item.path }}"
-        patterns: "vault.yml"
+        patterns: "vars.yml"
         recurse: false
-      register: user_vault_files
+      register: user_quadlet_vars_files
       loop: "{{ filtered_user_quadlets_dirs }}"
       when: filtered_user_quadlets_dirs | length > 0
 
-    - name: Load vault variables from system-quadlets directories
+    - name: Load quadlet-specific variables from system-quadlets directories
       include_vars:
-        file: "{{ vault_file.path }}"
-        name: "system_vault_vars_{{ ansible_loop.index0 }}"
-      loop: "{{ system_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
+        file: "{{ quadlet_vars_file.path }}"
+        name: "system_quadlet_vars_{{ ansible_loop.index0 }}"
+      loop: "{{ system_quadlet_vars_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
       loop_control:
         extended: yes
-        loop_var: vault_file
+        loop_var: quadlet_vars_file
       ignore_errors: yes
-      when: system_vault_files.results is defined
+      when: system_quadlet_vars_files.results is defined
 
-    - name: Load vault variables from user-quadlets directories
+    - name: Load quadlet-specific variables from user-quadlets directories
       include_vars:
-        file: "{{ user_vault_file.path }}"
-        name: "user_vault_vars_{{ ansible_loop.index0 }}"
-      loop: "{{ user_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
+        file: "{{ user_quadlet_vars_file.path }}"
+        name: "user_quadlet_vars_{{ ansible_loop.index0 }}"
+      loop: "{{ user_quadlet_vars_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list }}"
       loop_control:
         extended: yes
-        loop_var: user_vault_file
+        loop_var: user_quadlet_vars_file
       ignore_errors: yes
-      when: user_vault_files.results is defined
+      when: user_quadlet_vars_files.results is defined
 
-    - name: Merge all vault variables into env_vars
+    - name: Merge system quadlet-specific variables into env_vars
       set_fact:
-        env_vars: "{{ env_vars | combine(vars['system_vault_vars_' + vault_index | string] | default({})) }}"
-      loop: "{{ range(system_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
+        env_vars: "{{ env_vars | combine(vars['system_quadlet_vars_' + quadlet_vars_index | string] | default({})) }}"
+      loop: "{{ range(system_quadlet_vars_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
       loop_control:
-        loop_var: vault_index
-      when: system_vault_files.results is defined
+        loop_var: quadlet_vars_index
+      when: system_quadlet_vars_files.results is defined
 
-    - name: Merge user vault variables into env_vars
+    - name: Merge user quadlet-specific variables into env_vars
       set_fact:
-        env_vars: "{{ env_vars | combine(vars['user_vault_vars_' + user_vault_index | string] | default({})) }}"
-      loop: "{{ range(user_vault_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
+        env_vars: "{{ env_vars | combine(vars['user_quadlet_vars_' + user_quadlet_vars_index | string] | default({})) }}"
+      loop: "{{ range(user_quadlet_vars_files.results | selectattr('files', 'defined') | subelements('files') | map(attribute='1') | list | length) | list }}"
       loop_control:
-        loop_var: user_vault_index
-      when: user_vault_files.results is defined
+        loop_var: user_quadlet_vars_index
+      when: user_quadlet_vars_files.results is defined
 
     # ===== SYSTEM QUADLETS FILES PROCESSING =====
 
