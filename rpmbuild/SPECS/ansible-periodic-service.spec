@@ -9,16 +9,19 @@ Requires:       systemd
 Requires:       ansible-core >= 2.12
 Requires:       podman >= 4.0
 Requires:       containers-common
+Requires:       git
 Recommends:     ansible-collection-containers-podman
 
 %description
 A systemd service that runs Ansible playbooks periodically to manage containerized 
 applications and system configuration. Features include:
+- Git repository management with automatic pulling
 - Task management with user repository scanning
 - Podman quadlet management for system and user containers
-- Vault integration for encrypted variables
+- Variable integration with hierarchical vars.yml files
 - Template processing with Jinja2
 - Automatic service startup and user lingering
+- Support for HTTPS and SSH authentication
 
 %prep
 # Copy source files to build directory
@@ -52,18 +55,22 @@ install -m 644 main.yml %{buildroot}/usr/share/ansible-periodic/playbooks/
 # Install documentation
 mkdir -p %{buildroot}/usr/share/doc/ansible-periodic-service
 install -m 644 example-repo-structure.md %{buildroot}/usr/share/doc/ansible-periodic-service/
+install -m 644 ansible-periodic.conf.example %{buildroot}/usr/share/doc/ansible-periodic-service/
+install -m 644 vault-setup.md %{buildroot}/usr/share/doc/ansible-periodic-service/
 
 %files
 %dir /usr/libexec/ansible-periodic
 %dir /usr/share/ansible-periodic
 %dir /usr/share/ansible-periodic/playbooks
 %dir /etc/ansible-periodic
-%dir /var/lib/ansible-periodic
+%attr(700, root, root) %dir /var/lib/ansible-periodic
 %dir /var/log/ansible-periodic
 /usr/libexec/ansible-periodic/run-ansible-periodic.sh
 %config(noreplace) /etc/ansible-periodic/ansible-periodic.conf
 /usr/share/ansible-periodic/playbooks/main.yml
 /usr/share/doc/ansible-periodic-service/example-repo-structure.md
+/usr/share/doc/ansible-periodic-service/ansible-periodic.conf.example
+/usr/share/doc/ansible-periodic-service/vault-setup.md
 /usr/lib/systemd/system/ansible-periodic@.service
 /usr/lib/systemd/system/ansible-periodic.service
 /usr/lib/systemd/system/ansible-periodic.timer

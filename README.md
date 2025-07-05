@@ -6,12 +6,14 @@ A systemd-based service that runs Ansible playbooks periodically to manage conta
 - **Full mode**: Runs every 24 hours at 3 AM for complete system configuration
 
 **Key Features:**
+- **Git Repository Management**: Automatically pulls configuration from git repositories
 - **Task Management**: Finds and executes `task.yml` files from user repositories
 - **Podman Quadlets**: Manages system and user container services via Podman quadlets
 - **Variable Integration**: Loads variables from `vars.yml` files with hierarchical support
 - **Template Processing**: Supports Jinja2 templates for dynamic configuration
 - **User Services**: Manages per-user container services with proper ownership
 - **Service Auto-start**: Automatically starts and enables container services
+- **Authentication Support**: HTTPS and SSH authentication for private repositories
 
 ## Features
 
@@ -35,7 +37,9 @@ A systemd-based service that runs Ansible playbooks periodically to manage conta
    sudo dnf install rpmbuild/RPMS/noarch/ansible-periodic-service-*.rpm
    ```
 
-3. Enable and start the timers:
+3. Configure git repository (see Configuration section below)
+
+4. Enable and start the timers:
    ```bash
    sudo systemctl enable --now ansible-periodic.timer
    sudo systemctl enable --now ansible-periodic-full.timer
@@ -86,6 +90,56 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
 
 ## Configuration
 
+### Git Repository Setup
+
+The service automatically pulls configuration from a git repository. Configure this in `/etc/ansible-periodic/ansible-periodic.conf`:
+
+```bash
+# REQUIRED: Set your git repository URL
+GIT_REPO_URL="https://github.com/yourusername/ansible-configs.git"
+GIT_REPO_BRANCH="main"
+
+# Authentication (choose one method):
+
+# Method 1: HTTPS with username/password or personal access token
+GIT_USERNAME="yourusername"
+GIT_PASSWORD="your_token_here"
+
+# Method 2: SSH with private key
+# GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
+
+# Method 3: Public repository (no authentication needed)
+# Leave GIT_USERNAME and GIT_PASSWORD empty
+```
+
+**Authentication Examples:**
+
+For **GitHub** with personal access token:
+```bash
+GIT_REPO_URL="https://github.com/yourusername/ansible-configs.git"
+GIT_USERNAME="yourusername"
+GIT_PASSWORD="ghp_your_personal_access_token"
+```
+
+For **GitLab** with deploy token:
+```bash
+GIT_REPO_URL="https://gitlab.com/yourusername/ansible-configs.git"
+GIT_USERNAME="gitlab+deploy-token-123"
+GIT_PASSWORD="your_deploy_token"
+```
+
+For **SSH access**:
+```bash
+GIT_REPO_URL="git@github.com:yourusername/ansible-configs.git"
+GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
+```
+
+**Important Notes:**
+- The `/var/ansible-repo/` directory is automatically managed by git operations
+- Content is pulled fresh on each run (changes mode detects modified directories)
+- SSH keys should be readable by the root user (service runs as root)
+- For private repositories, ensure authentication is properly configured
+
 ### Directory Structure
 
 - `/usr/libexec/ansible-periodic/` - Main execution script
@@ -102,7 +156,7 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
    - Modify paths, playbook names, and Ansible settings
    - Enable/disable auto-creation of missing files
 
-2. **Set up your user repository** at `/var/ansible-repo/` (configurable):
+2. **Set up your git repository** with the following structure:
    - Create `task.yml` files in subdirectories for application tasks
    - Add `system-quadlets/` directories with Podman container configs
    - Add `user-quadlets/USERNAME/` directories for user-specific containers
@@ -111,22 +165,27 @@ sudo tail -f /var/log/ansible-periodic/ansible-periodic-*.log
 
 3. **Modify inventory** at `/etc/ansible-periodic/hosts`
 
-4. **Create user repository structure**:
+4. **Create git repository structure**:
    ```
-   /var/ansible-repo/
+   your-ansible-configs/
+   ├── vars.yml              # Global variables
    ├── app1/
    │   ├── task.yml
+   │   ├── vars.yml          # App1-specific variables
    │   └── system-quadlets/
    │       ├── myapp.container
-   │       └── vars.yml
+   │       └── vars.yml      # Quadlet-specific variables
    ├── app2/
    │   ├── task.yml
    │   └── user-quadlets/
    │       └── username/
-   │           └── userapp.container.j2
+   │           ├── userapp.container.j2
+   │           └── vars.yml
    └── finally/
        └── finally.yml
    ```
+
+   This repository will be automatically cloned to `/var/ansible-repo/` during service execution.
 
 5. **Adjust schedules** using systemd override files (see Customizing Schedules below)
 

@@ -19,6 +19,15 @@ LOG_MESSAGE_FORMAT="+%Y-%m-%d %H:%M:%S"
 CREATE_MISSING_PLAYBOOKS="true"
 CREATE_MISSING_INVENTORY="true"
 
+# Git repository defaults
+GIT_REPO_URL=""
+GIT_REPO_BRANCH="main"
+GIT_USERNAME=""
+GIT_PASSWORD=""
+GIT_SSH_KEY=""
+GIT_PULL_ENABLED="true"
+GIT_CLEAN_ON_PULL="false"
+
 # Source configuration file if it exists
 CONFIG_FILE="/etc/ansible-periodic/ansible-periodic.conf"
 if [ -f "${CONFIG_FILE}" ]; then
@@ -51,16 +60,115 @@ case "${MODE}" in
         ;;
 esac
 
+# Function to manage git repository
+manage_git_repository() {
+    if [ "${GIT_PULL_ENABLED}" != "true" ]; then
+        log "Git pull is disabled, skipping repository management"
+        return 0
+    fi
+
+    if [ -z "${GIT_REPO_URL}" ]; then
+        log "No git repository URL configured, skipping git operations"
+        return 0
+    fi
+
+    log "Managing git repository: ${GIT_REPO_URL}"
+
+    # Check if git is available
+    if ! command -v git &> /dev/null; then
+        log "ERROR: git command not found"
+        exit 1
+    fi
+
+    # Prepare git URL with authentication if needed
+    local git_url="${GIT_REPO_URL}"
+    if [ -n "${GIT_USERNAME}" ] && [ -n "${GIT_PASSWORD}" ]; then
+        # Extract protocol and rest of URL
+        local protocol=$(echo "${GIT_REPO_URL}" | sed -n 's/^\([^:]*\):\/\/.*/\1/p')
+        local url_without_protocol=$(echo "${GIT_REPO_URL}" | sed 's/^[^:]*:\/\///')
+        git_url="${protocol}://${GIT_USERNAME}:${GIT_PASSWORD}@${url_without_protocol}"
+        log "Using authenticated git URL (credentials configured)"
+    fi
+
+    # Handle SSH key if provided
+    if [ -n "${GIT_SSH_KEY}" ] && [ -f "${GIT_SSH_KEY}" ]; then
+        export GIT_SSH_COMMAND="ssh -i ${GIT_SSH_KEY} -o StrictHostKeyChecking=no"
+        log "Using SSH key: ${GIT_SSH_KEY}"
+    fi
+
+    # Create parent directory if it doesn't exist
+    mkdir -p "$(dirname "${USER_REPO_DIR}")"
+
+    if [ -d "${USER_REPO_DIR}/.git" ]; then
+        log "Repository exists, updating..."
+        cd "${USER_REPO_DIR}"
+        
+        # Clean working directory if requested
+        if [ "${GIT_CLEAN_ON_PULL}" = "true" ]; then
+            log "Cleaning working directory..."
+            git clean -fd
+            git reset --hard HEAD
+        fi
+        
+        # Fetch and pull latest changes
+        git fetch origin "${GIT_REPO_BRANCH}"
+        local old_commit=$(git rev-parse HEAD)
+        git checkout "${GIT_REPO_BRANCH}"
+        git pull origin "${GIT_REPO_BRANCH}"
+        local new_commit=$(git rev-parse HEAD)
+        
+        if [ "${old_commit}" != "${new_commit}" ]; then
+            log "Repository updated: ${old_commit} -> ${new_commit}"
+            # Set changed_dirs for changes mode
+            if [ "${MODE}" = "changes" ]; then
+                local changed_files=$(git diff --name-only "${old_commit}" "${new_commit}")
+                local changed_dirs=$(echo "${changed_files}" | xargs -I {} dirname {} | sort -u | tr '\n' ',' | sed 's/,$//')
+                if [ -n "${changed_dirs}" ]; then
+                    log "Changed directories: ${changed_dirs}"
+                    if [ "${MODE}" = "changes" ]; then
+                        CHANGES_EXTRA_VARS="${CHANGES_EXTRA_VARS} changed_dirs=${changed_dirs}"
+                    fi
+                fi
+            fi
+        else
+            log "Repository already up to date"
+        fi
+    else
+        log "Repository doesn't exist, cloning..."
+        rm -rf "${USER_REPO_DIR}"
+        git clone --branch "${GIT_REPO_BRANCH}" "${git_url}" "${USER_REPO_DIR}"
+        log "Repository cloned successfully"
+    fi
+
+    # Verify repository structure
+    if [ ! -d "${USER_REPO_DIR}" ]; then
+        log "ERROR: Repository directory ${USER_REPO_DIR} not found after git operations"
+        exit 1
+    fi
+
+    log "Git repository management completed successfully"
+}
+
 # Check if Ansible is available
 if ! command -v ansible-playbook &> /dev/null; then
     log "ERROR: ansible-playbook command not found"
     exit 1
 fi
 
+# Manage git repository before running ansible
+manage_git_repository
+
 # Set Ansible configuration from config
 export ANSIBLE_HOST_KEY_CHECKING="${ANSIBLE_HOST_KEY_CHECKING}"
 export ANSIBLE_STDOUT_CALLBACK="${ANSIBLE_STDOUT_CALLBACK}"
 export ANSIBLE_STDERR_CALLBACK="${ANSIBLE_STDERR_CALLBACK}"
+
+# Set vault password file if it exists
+VAULT_PASSWORD_FILE="/var/lib/ansible-periodic/.vault_password"
+if [ -f "${VAULT_PASSWORD_FILE}" ]; then
+    export ANSIBLE_VAULT_PASSWORD_FILE="${VAULT_PASSWORD_FILE}"
+    log "Using vault password file: ${VAULT_PASSWORD_FILE}"
+fi
 
 # Set the main playbook path
 PLAYBOOK="${PLAYBOOK_DIR}/${MAIN_PLAYBOOK}"
@@ -134,12 +242,12 @@ if ansible-playbook \
     -i "${INVENTORY_FILE}" \
     "${PLAYBOOK}" \
     --extra-vars "${EXTRA_VARS}" \
-    >> "${LOG_FILE}" 2>&1; then
+    2>&1 | tee -a "${LOG_FILE}"; then
     
     log "Ansible periodic run completed successfully in ${MODE} mode"
     exit 0
 else
-    exit_code=$?
+    exit_code=${PIPESTATUS[0]}
     log "ERROR: Ansible periodic run failed in ${MODE} mode (exit code: ${exit_code})"
     exit ${exit_code}
 fi 

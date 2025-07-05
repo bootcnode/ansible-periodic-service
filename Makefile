@@ -1,6 +1,6 @@
 PACKAGE_NAME = ansible-periodic-service
-VERSION = 1.1.0
-RELEASE = 2
+VERSION = 1.2.3
+RELEASE = 1
 ARCH = noarch
 
 # Container image name

@@ -1,0 +1,74 @@
+# Ansible Periodic Service Configuration Example
+# Copy this file to /etc/ansible-periodic/ansible-periodic.conf and modify as needed
+
+# Directory paths
+PLAYBOOK_DIR="/usr/share/ansible-periodic/playbooks"
+INVENTORY_FILE="/etc/ansible-periodic/hosts"
+LOG_DIR="/var/log/ansible-periodic"
+
+# Ansible configuration
+ANSIBLE_HOST_KEY_CHECKING="False"
+ANSIBLE_STDOUT_CALLBACK="oneline"
+ANSIBLE_STDERR_CALLBACK="oneline"
+
+# Main playbook (handles both modes)
+MAIN_PLAYBOOK="main.yml"
+
+# User repository settings
+# This is where your application configurations live
+USER_REPO_DIR="/var/ansible-repo"
+
+# Git repository configuration
+# REQUIRED: Set the git repository URL containing your ansible configurations
+GIT_REPO_URL="https://github.com/yourusername/your-ansible-configs.git"
+GIT_REPO_BRANCH="main"
+
+# Authentication options (choose one method):
+
+# Method 1: HTTPS with username/password or token
+GIT_USERNAME="your_username"
+GIT_PASSWORD="your_password_or_token"
+
+# Method 2: SSH with private key (leave username/password empty)
+# GIT_SSH_KEY="/path/to/your/private/key"
+
+# Method 3: Public repository (leave all auth fields empty)
+# GIT_USERNAME=""
+# GIT_PASSWORD=""
+# GIT_SSH_KEY=""
+
+# Git behavior options
+GIT_PULL_ENABLED="true"          # Set to "false" to disable git operations
+GIT_CLEAN_ON_PULL="false"       # Set to "true" to clean working directory before pull
+
+# Extra variables passed to ansible-playbook for different modes
+CHANGES_EXTRA_VARS="run_mode=changes"
+FULL_EXTRA_VARS="run_mode=full"
+
+# Logging options
+LOG_TIMESTAMP_FORMAT="+%Y%m%d-%H%M%S"
+LOG_MESSAGE_FORMAT="+%Y-%m-%d %H:%M:%S"
+
+# Runtime behavior
+CREATE_MISSING_PLAYBOOKS="true"
+CREATE_MISSING_INVENTORY="true"
+
+# Examples:
+#
+# For GitHub with personal access token:
+# GIT_REPO_URL="https://github.com/yourusername/ansible-configs.git"
+# GIT_USERNAME="yourusername"
+# GIT_PASSWORD="ghp_your_personal_access_token"
+#
+# For GitLab with deploy token:
+# GIT_REPO_URL="https://gitlab.com/yourusername/ansible-configs.git"
+# GIT_USERNAME="gitlab+deploy-token-123"
+# GIT_PASSWORD="your_deploy_token"
+#
+# For SSH access:
+# GIT_REPO_URL="git@github.com:yourusername/ansible-configs.git"
+# GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
+#
+# For public repository:
+# GIT_REPO_URL="https://github.com/yourusername/public-ansible-configs.git"
+# (leave auth fields empty) 
