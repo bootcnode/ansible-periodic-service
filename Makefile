@@ -1,6 +1,6 @@
 PACKAGE_NAME = ansible-periodic-service
-VERSION = 1.0.0
-RELEASE = 1
+VERSION = 1.1.0
+RELEASE = 2
 ARCH = noarch
 
 # Container image name
@@ -26,7 +26,17 @@ SPEC_FILE = $(SPECDIR)/ansible-periodic-service.spec
 DEBDIR = $(shell pwd)/debbuild
 DEBIAN_PKG_DIR = $(DEBDIR)/$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)
 
-.PHONY: all clean rpm srpm prepare install deb build-container
+# Load environment variables from .env file if it exists
+ifneq (,$(wildcard .env))
+    include .env
+    export
+endif
+
+# Set upload defaults if not defined in .env
+UPLOAD_TIMEOUT ?= 300
+UPLOAD_VERBOSE ?= false
+
+.PHONY: all clean rpm srpm prepare install deb build-container upload-rpm upload-deb upload-all check-env
 
 all: rpm deb
 
@@ -46,7 +56,10 @@ srpm: build-container prepare
 	@echo "Building source RPM in container..."
 	podman run --rm -v $(SRPMDIR):/output:Z $(CONTAINER_IMAGE) \
 		sh -c "cd /home/builder/periodic-ansible-service && \
-		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' \
+		               --define 'version $(VERSION)' \
+		               --define 'release $(RELEASE)' \
+		               -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
 		       cp rpmbuild/SRPMS/*.src.rpm /output/"
 
 # Build binary RPM using container
@@ -54,9 +67,15 @@ rpm: build-container prepare
 	@echo "Building binary RPM in container..."
 	podman run --rm -v $(RPMDIR):/output:Z -v $(SRPMDIR):/srpms:Z $(CONTAINER_IMAGE) \
 		sh -c "cd /home/builder/periodic-ansible-service && \
-		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' \
+		               --define 'version $(VERSION)' \
+		               --define 'release $(RELEASE)' \
+		               -bs rpmbuild/SPECS/ansible-periodic-service.spec && \
 		       cp rpmbuild/SRPMS/*.src.rpm /srpms/ && \
-		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' --rebuild rpmbuild/SRPMS/*.src.rpm && \
+		       rpmbuild --define '_topdir /home/builder/periodic-ansible-service/rpmbuild' \
+		               --define 'version $(VERSION)' \
+		               --define 'release $(RELEASE)' \
+		               --rebuild rpmbuild/SRPMS/*.src.rpm && \
 		       cp -r rpmbuild/RPMS/* /output/"
 
 # Build DEB package using container
@@ -104,7 +123,7 @@ deb-internal:
 	echo " containerized applications and system configuration. Features include:" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
 	echo " - Task management with user repository scanning" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
 	echo " - Podman quadlet management for system and user containers" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
-	echo " - Vault integration for encrypted variables" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
+	echo " - Variable integration with hierarchical vars.yml support" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
 	echo " - Template processing with Jinja2" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
 	echo " - Automatic service startup and user lingering" >> $(DEBIAN_PKG_DIR)/DEBIAN/control
 	
@@ -173,26 +192,155 @@ list-files:
 validate: build-container
 	@echo "Validating spec file in container..."
 	podman run --rm $(CONTAINER_IMAGE) \
-		rpmlint /home/builder/periodic-ansible-service/rpmbuild/SPECS/ansible-periodic-service.spec
+		sh -c "cd /home/builder/periodic-ansible-service && \
+		       rpmlint --define 'version $(VERSION)' \
+		              --define 'release $(RELEASE)' \
+		              rpmbuild/SPECS/ansible-periodic-service.spec"
 
 # Test install (builds and installs in one step)
 test-install: clean rpm install
 test-install-deb: clean deb install-deb
 
+# Check if environment variables are set for upload
+check-env:
+	@if [ -z "$(REPO_USERNAME)" ] || [ -z "$(REPO_PASSWORD)" ]; then \
+		echo "Error: REPO_USERNAME and REPO_PASSWORD must be set in .env file"; \
+		echo "Copy env.sample to .env and configure your repository credentials"; \
+		exit 1; \
+	fi
+	@if [ -z "$(RPM_UPLOAD_URL)" ]; then \
+		echo "Error: RPM_UPLOAD_URL must be set in .env file"; \
+		exit 1; \
+	fi
+	@if [ -z "$(DEB_UPLOAD_URL)" ]; then \
+		echo "Error: DEB_UPLOAD_URL must be set in .env file"; \
+		exit 1; \
+	fi
+
+# Upload RPM package to repository
+upload-rpm: check-env
+	@echo "Checking for RPM package..."
+	@RPM_FILE=$$(find $(RPMDIR) -name "$(PACKAGE_NAME)-$(VERSION)-$(RELEASE).$(ARCH).rpm" | head -1); \
+	if [ -z "$$RPM_FILE" ]; then \
+		echo "Error: RPM package not found. Run 'make rpm' first."; \
+		exit 1; \
+	fi; \
+	echo "Uploading RPM package: $$RPM_FILE"; \
+	echo "Package: $(PACKAGE_NAME)-$(VERSION)-$(RELEASE).$(ARCH).rpm"; \
+	echo "Target URL: $(RPM_UPLOAD_URL)"; \
+	CURL_OPTS="--user $(REPO_USERNAME):$(REPO_PASSWORD) --max-time $(UPLOAD_TIMEOUT) --show-error --write-out '%{http_code}'"; \
+	if [ "$(UPLOAD_VERBOSE)" = "true" ]; then \
+		CURL_OPTS="$$CURL_OPTS --verbose"; \
+	else \
+		CURL_OPTS="$$CURL_OPTS --silent"; \
+	fi; \
+	CURL_CMD="curl $$CURL_OPTS --upload-file \"$$RPM_FILE\" \"$(RPM_UPLOAD_URL)\""; \
+	echo "Executing: $$CURL_CMD"; \
+	HTTP_CODE=$$(eval $$CURL_CMD); \
+	echo "HTTP Response Code: $$HTTP_CODE"; \
+	case "$$HTTP_CODE" in \
+		200|201) echo "✅ Successfully uploaded RPM package (HTTP $$HTTP_CODE)";; \
+		409) echo "⚠️  Package already exists in repository (HTTP 409)"; \
+		     echo "This usually means $(PACKAGE_NAME)-$(VERSION)-$(RELEASE) is already uploaded"; \
+		     echo "Consider incrementing the version or release number"; \
+		     exit 0;; \
+		401|403) echo "❌ Authentication failed (HTTP $$HTTP_CODE)"; \
+		         echo "Check your REPO_USERNAME and REPO_PASSWORD in .env file"; \
+		         exit 1;; \
+		404) echo "❌ Repository endpoint not found (HTTP $$HTTP_CODE)"; \
+		     echo "Check your RPM_UPLOAD_URL in .env file"; \
+		     exit 1;; \
+		*) echo "❌ Upload failed with HTTP code '$$HTTP_CODE'"; \
+		   echo "This may indicate a server error or configuration issue"; \
+		   exit 1;; \
+	esac
+
+# Upload DEB package to repository
+upload-deb: check-env
+	@echo "Checking for DEB package..."
+	@DEB_FILE=$$(find $(DEBDIR) -name "$(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb" | head -1); \
+	if [ -z "$$DEB_FILE" ]; then \
+		echo "Error: DEB package not found. Run 'make deb' first."; \
+		exit 1; \
+	fi; \
+	echo "Uploading DEB package: $$DEB_FILE"; \
+	echo "Package: $(PACKAGE_NAME)_$(VERSION)-$(RELEASE)_all.deb"; \
+	echo "Target URL: $(DEB_UPLOAD_URL)"; \
+	CURL_OPTS="--user $(REPO_USERNAME):$(REPO_PASSWORD) --max-time $(UPLOAD_TIMEOUT) --show-error --write-out '%{http_code}'"; \
+	if [ "$(UPLOAD_VERBOSE)" = "true" ]; then \
+		CURL_OPTS="$$CURL_OPTS --verbose"; \
+	else \
+		CURL_OPTS="$$CURL_OPTS --silent"; \
+	fi; \
+	CURL_CMD="curl $$CURL_OPTS --upload-file \"$$DEB_FILE\" \"$(DEB_UPLOAD_URL)\""; \
+	echo "Executing: $$CURL_CMD"; \
+	HTTP_CODE=$$(eval $$CURL_CMD); \
+	echo "HTTP Response Code: $$HTTP_CODE"; \
+	case "$$HTTP_CODE" in \
+		200|201) echo "✅ Successfully uploaded DEB package (HTTP $$HTTP_CODE)";; \
+		409) echo "⚠️  Package already exists in repository (HTTP 409)"; \
+		     echo "This usually means $(PACKAGE_NAME)_$(VERSION)-$(RELEASE) is already uploaded"; \
+		     echo "Consider incrementing the version or release number"; \
+		     exit 0;; \
+		401|403) echo "❌ Authentication failed (HTTP $$HTTP_CODE)"; \
+		         echo "Check your REPO_USERNAME and REPO_PASSWORD in .env file"; \
+		         exit 1;; \
+		404) echo "❌ Repository endpoint not found (HTTP $$HTTP_CODE)"; \
+		     echo "Check your DEB_UPLOAD_URL in .env file"; \
+		     exit 1;; \
+		*) echo "❌ Upload failed with HTTP code '$$HTTP_CODE'"; \
+		   echo "This may indicate a server error or configuration issue"; \
+		   exit 1;; \
+	esac
+
+# Upload both RPM and DEB packages
+upload-all: upload-rpm upload-deb
+	@echo "All packages uploaded successfully"
+
+# Build and upload RPM in one step
+build-upload-rpm: rpm upload-rpm
+
+# Build and upload DEB in one step
+build-upload-deb: deb upload-deb
+
+# Build and upload all packages in one step
+build-upload-all: all upload-all
+
+# Show current version information
+show-version:
+	@echo "Current package version information:"
+	@echo "  Package: $(PACKAGE_NAME)"
+	@echo "  Version: $(VERSION)"
+	@echo "  Release: $(RELEASE)"
+	@echo "  Architecture: $(ARCH)"
+	@echo "  Full package name: $(PACKAGE_NAME)-$(VERSION)-$(RELEASE).$(ARCH)"
+
 help:
 	@echo "Available targets:"
-	@echo "  all             - Build both RPM and DEB packages (default)"
-	@echo "  build-container - Build the container image for packaging"
-	@echo "  prepare         - Set up build directories"
-	@echo "  srpm            - Build source RPM using container"
-	@echo "  rpm             - Build binary RPM using container"
-	@echo "  deb             - Build DEB package using container"
-	@echo "  install         - Install the built RPM (requires sudo)"
-	@echo "  install-deb     - Install the built DEB (requires sudo)"
-	@echo "  test-install    - Clean, build, and install RPM in one step"
-	@echo "  test-install-deb - Clean, build, and install DEB in one step"
-	@echo "  clean           - Remove build artifacts (preserves source structure)"
-	@echo "  clean-all       - Remove all build artifacts and directories"
-	@echo "  list-files      - Show files that will be packaged"
-	@echo "  validate        - Validate spec file with rpmlint using container"
-	@echo "  help            - Show this help message" 
+	@echo "  all                - Build both RPM and DEB packages (default)"
+	@echo "  build-container    - Build the container image for packaging"
+	@echo "  prepare            - Set up build directories"
+	@echo "  srpm               - Build source RPM using container"
+	@echo "  rpm                - Build binary RPM using container"
+	@echo "  deb                - Build DEB package using container"
+	@echo "  install            - Install the built RPM (requires sudo)"
+	@echo "  install-deb        - Install the built DEB (requires sudo)"
+	@echo "  test-install       - Clean, build, and install RPM in one step"
+	@echo "  test-install-deb   - Clean, build, and install DEB in one step"
+	@echo "  check-env          - Check if upload environment variables are set"
+	@echo "  upload-rpm         - Upload RPM package to repository"
+	@echo "  upload-deb         - Upload DEB package to repository"
+	@echo "  upload-all         - Upload both RPM and DEB packages"
+	@echo "  build-upload-rpm   - Build and upload RPM in one step"
+	@echo "  build-upload-deb   - Build and upload DEB in one step"
+	@echo "  build-upload-all   - Build and upload all packages in one step"
+	@echo "  show-version       - Display current version information"
+	@echo "  clean              - Remove build artifacts (preserves source structure)"
+	@echo "  clean-all          - Remove all build artifacts and directories"
+	@echo "  list-files         - Show files that will be packaged"
+	@echo "  validate           - Validate spec file with rpmlint using container"
+	@echo "  help               - Show this help message"
+	@echo ""
+	@echo "Upload Configuration:"
+	@echo "  Copy env.sample to .env and configure your repository settings"
+	@echo "  Required variables: REPO_USERNAME, REPO_PASSWORD, RPM_UPLOAD_URL, DEB_UPLOAD_URL" 

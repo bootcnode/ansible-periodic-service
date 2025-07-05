@@ -7,3 +7,6 @@ rpmbuild/SRPMS/
 # Ignore DEB build output
 debbuild/*.deb
 debbuild/ansible-periodic-service_*/
+
+# Ignore environment files with sensitive data
+.env

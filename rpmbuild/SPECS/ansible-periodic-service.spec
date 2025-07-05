@@ -1,6 +1,6 @@
 Name:           ansible-periodic-service
-Version:        1.0.0
-Release:        1
+Version:        %{?version}%{!?version:1.0.0}
+Release:        %{?release}%{!?release:1}
 Summary:        Systemd service for running Ansible playbooks periodically
 License:        MIT
 Group:          System Environment/Daemons
@@ -88,5 +88,5 @@ if [ $1 = 0 ]; then
 fi
 
 %changelog
-* Mon Jan 01 2024 Package Maintainer <maintainer@example.com> - 1.0.0-1
+* Mon Jan 01 2024 Package Maintainer <maintainer@example.com> - %{version}-%{release}
 - Initial package 
