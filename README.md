@@ -1,9 +1,40 @@
 # Ansible Periodic Service
 
-A systemd-based service that runs Ansible playbooks periodically to manage containerized applications and system configuration in two modes:
+A systemd-based service that runs Ansible playbooks periodically. 
+
+This basically flips ansible on its head, instead of you *pushing* configs from a central location to remote machine, this continuously pulls a git repo and runs the playbooks.
+
+Essentially, this creates a git-ops driven configuration philosophy. 
+
+An example layout:
+
+   ```
+   your-ansible-repo/
+   ├── vars.yml              # Global variables
+   ├── app1/
+   │   ├── task.yml
+   │   ├── vars.yml          # App1-specific variables
+   ├── app2/
+   │   ├── task.yml
+   ├── user-quadlets/        # User quadlet (rootless)
+   │   └── user123/
+   │       ├── someapp.container.j2
+   │       └── vars.yml
+   ├── system-quadlets/      # System-level quadlet
+   │   ├── myapp.container
+   |   ├── myapp.volume
+   |   ├── myapp.pod
+   │   └── vars.yml          # Quadlet-specific variables
+   └── finally/
+       └── finally.yml       # Will run last
+   ```
+
+By default the service runs in one of two modes:
 
 - **Changes mode**: Runs every 15 minutes for quick updates to specific changed directories
 - **Full mode**: Runs every 24 hours at 3 AM for complete system configuration
+
+Obviously those times are configurable, but those are the defaults. 
 
 **Key Features:**
 - **Git Repository Management**: Automatically pulls configuration from git repositories
@@ -167,22 +198,22 @@ GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
 
 4. **Create git repository structure**:
    ```
-   your-ansible-configs/
+   your-ansible-repo/
    ├── vars.yml              # Global variables
    ├── app1/
    │   ├── task.yml
    │   ├── vars.yml          # App1-specific variables
-   │   └── system-quadlets/
-   │       ├── myapp.container
-   │       └── vars.yml      # Quadlet-specific variables
    ├── app2/
    │   ├── task.yml
-   │   └── user-quadlets/
-   │       └── username/
-   │           ├── userapp.container.j2
-   │           └── vars.yml
+   ├── user-quadlets/        # User quadlet (rootless)
+   │   └── user123/
+   │       ├── someapp.container.j2
+   │       └── vars.yml
+   ├── system-quadlets/      # System-level quadlet
+   │   ├── myapp.container
+   │   └── vars.yml          # Quadlet-specific variables
    └── finally/
-       └── finally.yml
+       └── finally.yml       # Will run last
    ```
 
    This repository will be automatically cloned to `/var/ansible-repo/` during service execution.
