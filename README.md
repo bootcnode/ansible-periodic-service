@@ -196,26 +196,17 @@ GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
 
 3. **Modify inventory** at `/etc/ansible-periodic/hosts`
 
-4. **Create git repository structure**:
+4. **Create git repository structure** (minimal example):
    ```
    your-ansible-repo/
-   ├── vars.yml              # Global variables
-   ├── app1/
+   ├── vars.yml              # Global variables (optional)
+   ├── config/               # This folder can be named anything
+   │   ├── task.yml          # task.yml files are what is run
+   │   ├── vars.yml          # vars specific for this context (optional)
+   ├── config2/
    │   ├── task.yml
-   │   ├── vars.yml          # App1-specific variables
-   ├── app2/
-   │   ├── task.yml
-   ├── user-quadlets/        # User quadlet (rootless)
-   │   └── user123/
-   │       ├── someapp.container.j2
-   │       └── vars.yml
-   ├── system-quadlets/      # System-level quadlet
-   │   ├── myapp.container
-   │   └── vars.yml          # Quadlet-specific variables
-   └── finally/
-       └── finally.yml       # Will run last
+   ├── etc..
    ```
-
    This repository will be automatically cloned to `/var/ansible-repo/` during service execution.
 
 5. **Adjust schedules** using systemd override files (see Customizing Schedules below)
