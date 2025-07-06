@@ -10,23 +10,23 @@ An example layout:
 
    ```
    your-ansible-repo/
-   ├── vars.yml              # Global variables
+   ├── vars.yml                          # Global variables
    ├── app1/
-   │   ├── task.yml
-   │   ├── vars.yml          # App1-specific variables
+   │   ├── task.yml                      # task.yml files are whats executed
+   │   ├── vars.yml                      # vars.yml hold variables (can be vault encrypted) 
    ├── app2/
    │   ├── task.yml
-   ├── user-quadlets/        # User quadlet (rootless)
-   │   └── user123/
-   │       ├── someapp.container.j2
-   │       └── vars.yml
-   ├── system-quadlets/      # System-level quadlet
-   │   ├── myapp.container
-   |   ├── myapp.volume
+   ├── system-quadlets/                  # System-level quadlet (rootfull) will be placed in /etc/containers/systemd
+   │   ├── myapp.container               # Supports .container .build .volume .network .env .kube .pod .image files
+   |   ├── myapp.volume                  
    |   ├── myapp.pod
-   │   └── vars.yml          # Quadlet-specific variables
+   │   └── vars.yml
+   ├── user-quadlets/                    # User quadlet (rootless) .containers will be placed in ~/.config/containers/systemd
+   │   └── user123/
+   │       ├── someapp.container.j2      # Jinja templates files will be processed with variables loaded via vars.yml files 
+   │       └── vars.yml                  # Quadlet-specific variables
    └── finally/
-       └── finally.yml       # Will run last
+       └── finally.yml                   # finally.yml always runs last
    ```
 
 By default the service runs in one of two modes:
