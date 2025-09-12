@@ -111,7 +111,7 @@ manage_git_repository() {
         fi
         
         # Fetch and pull latest changes
-        git fetch origin "${GIT_REPO_BRANCH}"
+        #git fetch origin "${GIT_REPO_BRANCH}"
         local old_commit=$(git rev-parse HEAD)
         git checkout "${GIT_REPO_BRANCH}"
         git pull origin "${GIT_REPO_BRANCH}"
