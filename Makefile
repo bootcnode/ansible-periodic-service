@@ -1,5 +1,5 @@
 PACKAGE_NAME = ansible-periodic-service
-VERSION = 1.5.0
+VERSION = 1.6.0
 RELEASE = 1
 ARCH = noarch
 

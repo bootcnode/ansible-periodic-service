@@ -26,6 +26,7 @@
         recurse: true
         depth: 2
       register: all_task_files
+      no_log: true
 
     - name: Filter task files based on run mode
       set_fact:
@@ -55,6 +56,7 @@
         recurse: false
         depth: 1
       register: global_vars_file
+      no_log: true
 
     - name: Load global variables from user repository root
       include_vars:
@@ -74,6 +76,7 @@
         recurse: true
         depth: 3
       register: all_vars_files
+      no_log: true
 
     - name: Filter out global vars.yml (already loaded)
       set_fact:
@@ -127,6 +130,7 @@
         recurse: true
         depth: 2
       register: all_system_quadlets_dirs
+      no_log: true
 
     - name: Filter system-quadlets directories based on run mode
       set_fact:
@@ -157,6 +161,7 @@
         recurse: true
         depth: 2
       register: user_quadlets_base_dirs
+      no_log: true
 
     - name: Find all user subdirectories in user-quadlets
       find:
@@ -166,6 +171,7 @@
       register: all_user_quadlets_dirs
       loop: "{{ user_quadlets_base_dirs.files }}"
       when: user_quadlets_base_dirs.files | length > 0
+      no_log: true
 
     - name: Filter user-quadlets directories based on run mode
       set_fact:
@@ -196,6 +202,7 @@
       register: system_quadlet_vars_files
       loop: "{{ filtered_system_quadlets_dirs }}"
       when: filtered_system_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Find vars.yml files in filtered user-quadlets directories
       find:
@@ -205,6 +212,7 @@
       register: user_quadlet_vars_files
       loop: "{{ filtered_user_quadlets_dirs }}"
       when: filtered_user_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Load quadlet-specific variables from system-quadlets directories
       include_vars:
@@ -262,6 +270,7 @@
       register: system_direct_quadlet_files
       loop: "{{ filtered_system_quadlets_dirs }}"
       when: filtered_system_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Find system quadlet template files (.j2) in filtered system-quadlets directories
       find:
@@ -279,6 +288,7 @@
       register: system_template_quadlet_files
       loop: "{{ filtered_system_quadlets_dirs }}"
       when: filtered_system_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Show found system quadlet files
       debug:
@@ -297,6 +307,7 @@
         loop_var: quadlet_file
       when: system_direct_quadlet_files.results is defined
       notify: reload systemd daemon
+      no_log: true
 
     - name: Process system quadlet template files and copy to /etc/containers/systemd
       become: yes
@@ -311,6 +322,7 @@
         - system_template_quadlet_files.results is defined
         - env_vars is defined
       notify: reload systemd daemon
+      no_log: true
 
     # ===== USER QUADLETS FILES PROCESSING =====
 
@@ -326,6 +338,7 @@
       failed_when: false
       changed_when: false
       when: user_quadlet_users | length > 0
+      no_log: true
 
     - name: Create list of valid users (those that exist on the system)
       set_fact:
@@ -360,6 +373,7 @@
       register: user_direct_quadlet_files
       loop: "{{ valid_user_quadlets_dirs | default([]) }}"
       when: valid_user_quadlets_dirs is defined and valid_user_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Find user quadlet template files (.j2) in valid user-quadlets directories
       find:
@@ -377,6 +391,7 @@
       register: user_template_quadlet_files
       loop: "{{ valid_user_quadlets_dirs | default([]) }}"
       when: valid_user_quadlets_dirs is defined and valid_user_quadlets_dirs | length > 0
+      no_log: true
 
     - name: Show found user quadlet files
       debug:
@@ -394,6 +409,7 @@
         mode: '0751'
       loop: "{{ valid_users | default([]) }}"
       when: valid_users is defined and valid_users | length > 0
+      no_log: true
 
     - name: Copy user quadlet files to user directories
       become: yes
@@ -408,6 +424,7 @@
         loop_var: user_quadlet
       when: user_direct_quadlet_files.results is defined
       notify: reload user systemd daemons
+      no_log: true
 
     - name: Process user quadlet template files and copy to user directories
       become: yes
@@ -424,6 +441,7 @@
         - user_template_quadlet_files.results is defined
         - env_vars is defined
       notify: reload user systemd daemons
+      no_log: true
 
     - name: Enable lingering for users with quadlets
       become: yes
@@ -445,6 +463,7 @@
           - "*.pod"
         recurse: false
       register: system_quadlet_files_autostart
+      no_log: true
 
     - name: Extract system service names from quadlet files
       set_fact:
@@ -464,6 +483,7 @@
       loop: "{{ system_quadlet_services }}"
       when: system_quadlet_services | length > 0
       ignore_errors: yes  # Some services might already be running or have dependencies
+      no_log: true
 
     - name: Find all user home directories for quadlet auto-start
       find:
@@ -472,6 +492,7 @@
         depth: 1
       register: user_home_dirs_autostart
       ignore_errors: yes
+      no_log: true
 
     - name: Find user quadlet files for auto-start
       find:
@@ -484,6 +505,7 @@
       loop: "{{ user_home_dirs_autostart.files | default([]) }}"
       when: user_home_dirs_autostart.files is defined
       ignore_errors: yes
+      no_log: true
 
     - name: Show discovered user quadlet services for auto-start
       debug:
@@ -508,6 +530,7 @@
         label: "{{ username }}/{{ service_name }}"
       when: user_quadlet_files_autostart.results is defined
       ignore_errors: yes
+      no_log: true
 
     - name: Check if finally/finally.yml exists
       stat:
@@ -529,6 +552,7 @@
       become: yes
       systemd:
         daemon_reload: yes
+      no_log: true
 
     - name: reload user systemd daemons
       become: yes
@@ -538,3 +562,4 @@
         scope: user
       loop: "{{ valid_users | default([]) }}"
       when: valid_users is defined and valid_users | length > 0
+      no_log: true
