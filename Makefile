@@ -1,5 +1,5 @@
 PACKAGE_NAME = ansible-periodic-service
-VERSION = 1.3.5
+VERSION = 1.5.0
 RELEASE = 1
 ARCH = noarch
 
@@ -15,7 +15,7 @@ SRPMDIR = $(TOPDIR)/SRPMS
 BUILDDIR = $(TOPDIR)/BUILD
 
 # Source files
-SYSTEMD_FILES = ansible-periodic@.service ansible-periodic.service ansible-periodic.timer ansible-periodic-full.timer
+SYSTEMD_FILES = ansible-periodic@.service ansible-periodic.timer ansible-periodic-full.timer
 SCRIPT_FILES = run-ansible-periodic.sh
 CONFIG_FILES = ansible-periodic.conf
 PLAYBOOK_FILES = main.yml
@@ -104,7 +104,7 @@ deb-internal:
 	$(eval CONTAINER_SOURCEDIR = /home/builder/periodic-ansible-service/rpmbuild/SOURCES)
 	cp $(CONTAINER_SOURCEDIR)/$(SCRIPT_FILES) $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/
 	chmod 755 $(DEBIAN_PKG_DIR)/usr/libexec/ansible-periodic/run-ansible-periodic.sh
-	cp $(CONTAINER_SOURCEDIR)/ansible-periodic@.service $(CONTAINER_SOURCEDIR)/ansible-periodic.service $(CONTAINER_SOURCEDIR)/ansible-periodic.timer $(CONTAINER_SOURCEDIR)/ansible-periodic-full.timer $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
+	cp $(CONTAINER_SOURCEDIR)/ansible-periodic@.service $(CONTAINER_SOURCEDIR)/ansible-periodic.timer $(CONTAINER_SOURCEDIR)/ansible-periodic-full.timer $(DEBIAN_PKG_DIR)/usr/lib/systemd/system/
 	cp $(CONTAINER_SOURCEDIR)/$(CONFIG_FILES) $(DEBIAN_PKG_DIR)/etc/ansible-periodic/
 	cp $(CONTAINER_SOURCEDIR)/$(PLAYBOOK_FILES) $(DEBIAN_PKG_DIR)/usr/share/ansible-periodic/playbooks/
 	cp $(CONTAINER_SOURCEDIR)/$(DOC_FILES) $(DEBIAN_PKG_DIR)/usr/share/doc/ansible-periodic-service/

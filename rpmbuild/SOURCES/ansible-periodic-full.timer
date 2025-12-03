@@ -1,12 +1,11 @@
 [Unit]
-Description=Run Ansible Periodic Playbooks (Full) every 24 hours
+Description=Run Ansible Periodic Playbooks (Full) weekly on Sunday
 Requires=ansible-periodic@full.service
 
 [Timer]
-OnBootSec=30min
-OnCalendar=*-*-* 03:00:00
+Unit=ansible-periodic@full.service
+OnCalendar=Sun *-*-* 02:00:00
 RandomizedDelaySec=2h
-Persistent=true
 
 [Install]
 WantedBy=timers.target 

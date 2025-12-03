@@ -43,7 +43,6 @@ mkdir -p %{buildroot}/var/log/ansible-periodic
 
 # Install systemd unit files
 install -m 644 ansible-periodic@.service %{buildroot}/usr/lib/systemd/system/
-install -m 644 ansible-periodic.service %{buildroot}/usr/lib/systemd/system/
 install -m 644 ansible-periodic.timer %{buildroot}/usr/lib/systemd/system/
 install -m 644 ansible-periodic-full.timer %{buildroot}/usr/lib/systemd/system/
 
@@ -72,7 +71,6 @@ install -m 644 vault-setup.md %{buildroot}/usr/share/doc/ansible-periodic-servic
 /usr/share/doc/ansible-periodic-service/ansible-periodic.conf.example
 /usr/share/doc/ansible-periodic-service/vault-setup.md
 /usr/lib/systemd/system/ansible-periodic@.service
-/usr/lib/systemd/system/ansible-periodic.service
 /usr/lib/systemd/system/ansible-periodic.timer
 /usr/lib/systemd/system/ansible-periodic-full.timer
 

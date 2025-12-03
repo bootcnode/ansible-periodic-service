@@ -47,6 +47,90 @@ log() {
     echo "[$(date "${LOG_MESSAGE_FORMAT}")] $*" | tee -a "${LOG_FILE}"
 }
 
+# Setup file locking with stale lock detection
+LOCK_FILE="/var/run/ansible-periodic-${MODE}.lock"
+LOCK_PID_FILE="/var/run/ansible-periodic-${MODE}.pid"
+LOCK_MAX_AGE_SECONDS=7200  # 2 hours - if lock is older than this, consider it stale
+
+# Function to check if a process is running
+is_process_running() {
+    local pid=$1
+    if [ -z "${pid}" ]; then
+        return 1
+    fi
+    if kill -0 "${pid}" 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# Function to acquire lock with stale lock detection
+acquire_lock() {
+    # Try to acquire the lock non-blocking
+    exec 200>"${LOCK_FILE}"
+    if flock -n 200; then
+        # Lock acquired, write our PID
+        echo $$ > "${LOCK_PID_FILE}"
+        return 0
+    else
+        # Lock is held, check if it's stale
+        log "Lock file exists, checking if it's stale..."
+        
+        # Check if PID file exists and contains a valid PID
+        if [ -f "${LOCK_PID_FILE}" ]; then
+            local lock_pid=$(cat "${LOCK_PID_FILE}" 2>/dev/null)
+            
+            # Check if the process is still running
+            if is_process_running "${lock_pid}"; then
+                log "Another instance (PID ${lock_pid}) is already running in ${MODE} mode"
+                return 1
+            else
+                log "Found stale lock from dead process (PID ${lock_pid}), removing..."
+            fi
+        else
+            # No PID file, check lock file age
+            if [ -f "${LOCK_FILE}" ]; then
+                local lock_age=$(($(date +%s) - $(stat -c %Y "${LOCK_FILE}" 2>/dev/null || echo 0)))
+                if [ ${lock_age} -gt ${LOCK_MAX_AGE_SECONDS} ]; then
+                    log "Found stale lock file (${lock_age} seconds old), removing..."
+                else
+                    log "Lock file exists but no PID file found, and lock is recent (${lock_age}s old)"
+                    return 1
+                fi
+            fi
+        fi
+        
+        # Remove stale lock files
+        rm -f "${LOCK_FILE}" "${LOCK_PID_FILE}" 2>/dev/null
+        
+        # Try to acquire lock again
+        exec 200>"${LOCK_FILE}"
+        if flock -n 200; then
+            echo $$ > "${LOCK_PID_FILE}"
+            log "Acquired lock after removing stale lock"
+            return 0
+        else
+            log "Failed to acquire lock even after removing stale lock"
+            return 1
+        fi
+    fi
+}
+
+# Function to release lock
+release_lock() {
+    rm -f "${LOCK_PID_FILE}" 2>/dev/null
+    # flock will be automatically released when the file descriptor is closed (script exit)
+}
+
+# Set up trap to release lock on exit
+trap release_lock EXIT INT TERM
+
+# Acquire lock or exit
+if ! acquire_lock; then
+    exit 0
+fi
+
 log "Starting Ansible periodic run in '${MODE}' mode"
 
 # Validate mode

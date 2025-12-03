@@ -3,10 +3,10 @@ Description=Run Ansible Periodic Playbooks (Changes) every 15 minutes
 Requires=ansible-periodic@changes.service
 
 [Timer]
+Unit=ansible-periodic@changes.service
 OnBootSec=5min
 OnUnitActiveSec=15min
 RandomizedDelaySec=3min
-Persistent=true
 
 [Install]
 WantedBy=timers.target 
