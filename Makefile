@@ -130,8 +130,6 @@ deb-internal:
 	# Create postinst script
 	echo "#!/bin/bash" > $(DEBIAN_PKG_DIR)/DEBIAN/postinst
 	echo "systemctl daemon-reload" >> $(DEBIAN_PKG_DIR)/DEBIAN/postinst
-	echo "systemctl enable ansible-periodic.timer" >> $(DEBIAN_PKG_DIR)/DEBIAN/postinst
-	echo "systemctl enable ansible-periodic-full.timer" >> $(DEBIAN_PKG_DIR)/DEBIAN/postinst
 	chmod 755 $(DEBIAN_PKG_DIR)/DEBIAN/postinst
 	
 	# Create prerm script
