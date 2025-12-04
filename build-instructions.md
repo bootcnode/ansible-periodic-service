@@ -52,7 +52,7 @@ The package installs:
 
 - **ansible-periodic@.service**: Parameterized service template
 - **ansible-periodic.timer**: Runs "changes" mode every 15 minutes
-- **ansible-periodic-full.timer**: Runs "full" mode every 24 hours at 3 AM
+- **ansible-periodic-full.timer**: Runs "full" mode weekly on Sunday at 2 AM
 - **run-ansible-periodic.sh**: Main script that executes Ansible playbooks
 
 ## Usage After Installation

@@ -32,7 +32,7 @@ An example layout:
 By default the service runs in one of two modes:
 
 - **Changes mode**: Runs every 15 minutes for quick updates to specific changed directories
-- **Full mode**: Runs every 24 hours at 3 AM for complete system configuration
+- **Full mode**: Runs weekly on Sunday at 2 AM for complete system configuration
 
 Obviously those times are configurable, but those are the defaults. 
 
@@ -78,7 +78,7 @@ Obviously those times are configurable, but those are the defaults.
 
 ### Manual Installation
 
-If you prefer manual installation, copy the systemd unit files to `/usr/lib/systemd/system/` and the script to `/opt/ansible-periodic-service/scripts/`.
+If you prefer manual installation, copy the systemd unit files to `/usr/lib/systemd/system/` and the script to `/usr/libexec/ansible-periodic/`.
 
 ## Usage
 
@@ -87,7 +87,7 @@ If you prefer manual installation, copy the systemd unit files to `/usr/lib/syst
 Once installed and enabled, the service runs automatically:
 
 - **Changes mode**: Every 15 minutes (with 3-minute randomized delay)
-- **Full mode**: Daily at 3 AM (with 2-hour randomized delay)
+- **Full mode**: Weekly on Sunday at 2 AM (with 2-hour randomized delay)
 
 ### Manual Execution
 
@@ -221,7 +221,7 @@ Instead of editing the package-installed timer files directly, use systemd overr
 # Customize the changes timer (runs every 15 minutes by default)
 sudo systemctl edit ansible-periodic.timer
 
-# Customize the full timer (runs daily at 3 AM by default)  
+# Customize the full timer (runs weekly on Sunday at 2 AM by default)  
 sudo systemctl edit ansible-periodic-full.timer
 ```
 
@@ -259,7 +259,7 @@ sudo mkdir -p /etc/systemd/system/ansible-periodic-full.timer.d
 
 sudo tee /etc/systemd/system/ansible-periodic-full.timer.d/schedule.conf << EOF
 [Timer]
-# Run at 2 AM instead of 3 AM
+# Run daily at 2 AM instead of weekly on Sunday
 OnCalendar=*-*-* 02:00:00
 # Start 15 minutes after boot instead of 30
 OnBootSec=15min
