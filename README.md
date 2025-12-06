@@ -11,6 +11,7 @@ An example layout:
    ```
    your-ansible-repo/
    ├── vars.yml                          # Global variables
+   ├── handlers.yml                      # Global handlers (optional)
    ├── app1/
    │   ├── task.yml                      # task.yml files are whats executed
    │   ├── vars.yml                      # vars.yml hold variables (can be vault encrypted) 
@@ -40,7 +41,8 @@ Obviously those times are configurable, but those are the defaults.
 - **Git Repository Management**: Automatically pulls configuration from git repositories
 - **Task Management**: Finds and executes `task.yml` files from user repositories
 - **Podman Quadlets**: Manages system and user container services via Podman quadlets
-- **Variable Integration**: Loads variables from `vars.yml` files with hierarchical support
+- **Variable Integration**: Loads variables from `vars.yml` files with hierarchical support (access via `env_vars.variable_name` in tasks)
+- **Handler Support**: Global `handlers.yml` file at repository root for reusable handlers
 - **Template Processing**: Supports Jinja2 templates for dynamic configuration
 - **User Services**: Manages per-user container services with proper ownership
 - **Service Auto-start**: Automatically starts and enables container services
@@ -209,7 +211,45 @@ GIT_SSH_KEY="/var/lib/ansible-periodic/.ssh/id_rsa"
    ```
    This repository will be automatically cloned to `/var/ansible-repo/` during service execution.
 
-5. **Adjust schedules** using systemd override files (see Customizing Schedules below)
+5. **Using variables from vars.yml files**:
+   - In `task.yml` files: Access variables via `env_vars.variable_name`
+     ```yaml
+     - name: Use variable in task
+       command: echo "{{ env_vars.database_url }}"
+       loop: "{{ env_vars.zerotier_networks }}"
+     ```
+   - In `.j2` template files: Access directly as `variable_name` or via `env_vars.variable_name`
+     ```ini
+     Environment=DATABASE_URL={{ database_url }}
+     # or
+     Environment=DATABASE_URL={{ env_vars.database_url }}
+     ```
+
+6. **Using handlers from handlers.yml**:
+   - Create a `handlers.yml` file at the repository root with your handlers:
+     ```yaml
+     ---
+     - name: restart gdm
+       systemd:
+         name: gdm
+         state: restarted
+     
+     - name: restart nginx
+       systemd:
+         name: nginx
+         state: restarted
+     ```
+   - Notify handlers from any `task.yml` file:
+     ```yaml
+     - name: Update configuration
+       template:
+         src: config.j2
+         dest: /etc/app/config
+       notify: restart nginx
+     ```
+   - Handlers execute at the end of the playbook run (or use `meta: flush_handlers` for immediate execution)
+
+7. **Adjust schedules** using systemd override files (see Customizing Schedules below)
 
 ## Customizing Schedules
 

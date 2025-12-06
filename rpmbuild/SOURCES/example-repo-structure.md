@@ -6,6 +6,8 @@ This file shows how to organize your user repository (default: `/var/ansible-rep
 
 ```
 /var/ansible-repo/
+├── handlers.yml                       # Global handlers (optional)
+├── vars.yml                          # Global variables (optional)
 ├── webapp/
 │   ├── task.yml                      # Application-specific tasks
 │   └── system-quadlets/
@@ -44,6 +46,11 @@ This file shows how to organize your user repository (default: `/var/ansible-rep
     src: app.conf.j2
     dest: /opt/webapp/app.conf
     mode: '0644'
+
+- name: Use variables from vars.yml in tasks
+  command: echo "Database URL: {{ env_vars.database_url }}"
+  # Variables loaded from vars.yml files are available via env_vars dictionary
+  # Use env_vars.variable_name to access them in task.yml files
 ```
 
 ### system-quadlets/webapp.container (Podman Quadlet)
@@ -94,6 +101,71 @@ database_url: "postgresql://webapp:secret123@localhost/webapp"
 webapp_image: "registry.example.com/webapp:v1.2.3"
 webapp_port: "8443"
 ```
+
+**Using Variables:**
+
+Variables from `vars.yml` files are available in two contexts:
+
+1. **In task.yml files**: Access via `env_vars.variable_name`
+   ```yaml
+   - name: Use variable in task
+     command: echo "{{ env_vars.database_url }}"
+     loop: "{{ env_vars.zerotier_networks }}"
+   ```
+
+2. **In .j2 template files**: Access directly as `variable_name` or via `env_vars.variable_name`
+   ```ini
+   # Both work in templates:
+   DatabaseURL={{ database_url }}
+   DatabaseURL={{ env_vars.database_url }}
+   ```
+
+### handlers.yml (Global Handlers)
+
+Place a `handlers.yml` file in the repository root to define handlers that can be notified from any `task.yml` file:
+
+```yaml
+---
+# Global handlers available to all task.yml files
+- name: restart gdm
+  systemd:
+    name: gdm
+    state: restarted
+
+- name: restart nginx
+  systemd:
+    name: nginx
+    state: restarted
+
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+```
+
+**Using Handlers:**
+
+In your `task.yml` files, you can notify handlers defined in `handlers.yml`:
+
+```yaml
+---
+- name: Update configuration
+  template:
+    src: config.j2
+    dest: /etc/app/config
+  notify: restart nginx
+
+- name: Update GDM configuration
+  copy:
+    src: gdm.conf
+    dest: /etc/gdm/custom.conf
+  notify: restart gdm
+```
+
+**Important Notes:**
+- Handlers are executed at the end of the playbook run (or when `meta: flush_handlers` is used)
+- Handlers only run if the notifying task reports `changed: true`
+- Handlers must be defined in the root `handlers.yml` file (not in individual task.yml files)
+- The `handlers.yml` file is optional - if it doesn't exist, it will be ignored
 
 ## Variable Hierarchy
 

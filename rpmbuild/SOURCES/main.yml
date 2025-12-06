@@ -108,6 +108,17 @@
           - "Total variables loaded: {{ env_vars.keys() | list | length }}"
           - "Variable keys: {{ env_vars.keys() | list }}"
 
+    - name: Check if global handlers.yml exists
+      stat:
+        path: "{{ user_repo_dir }}/handlers.yml"
+      register: global_handlers_file
+      no_log: true
+
+    - name: Show handlers file status
+      debug:
+        msg: "Global handlers.yml found: {{ global_handlers_file.stat.exists }}"
+      when: global_handlers_file is defined
+
     - name: Run filtered application tasks
       include_tasks: "{{ item.path }}"
       loop: "{{ filtered_task_files }}"
@@ -548,6 +559,14 @@
         msg: "Completed {{ run_mode }} run: {{ filtered_task_files | length }} tasks, {{ filtered_system_quadlets_dirs | length }} system-quadlets, and {{ valid_users | default([]) | length }} user-quadlets processed{{ finally_task_file.stat.exists | ternary(' (including finally tasks)', '') }}"
 
   handlers:
+    # Include user-defined handlers from repository root (if it exists)
+    # The handlers.yml file should contain a list of handler definitions
+    # Note: include_tasks is used instead of deprecated include
+    # include_tasks supports variables in paths and works in handlers section
+    - include_tasks: "{{ user_repo_dir }}/handlers.yml"
+      when: global_handlers_file.stat.exists | default(false)
+      ignore_errors: yes
+
     - name: reload systemd daemon
       become: yes
       systemd:

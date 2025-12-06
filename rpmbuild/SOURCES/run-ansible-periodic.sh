@@ -206,10 +206,17 @@ manage_git_repository() {
             # Set changed_dirs for changes mode
             if [ "${MODE}" = "changes" ]; then
                 local changed_files=$(git diff --name-only "${old_commit}" "${new_commit}")
-                local changed_dirs=$(echo "${changed_files}" | xargs -I {} dirname {} | sort -u | tr '\n' ',' | sed 's/,$//')
-                if [ -n "${changed_dirs}" ]; then
-                    log "Changed directories: ${changed_dirs}"
-                    if [ "${MODE}" = "changes" ]; then
+                
+                # If any vars.yml changed, switch to full mode (affects all tasks)
+                if echo "${changed_files}" | grep -q "vars\.yml$"; then
+                    log "vars.yml changed - switching to full mode to ensure all tasks see updated variables"
+                    MODE="full"
+                    CHANGES_EXTRA_VARS="${FULL_EXTRA_VARS}"
+                else
+                    # Normal change detection
+                    local changed_dirs=$(echo "${changed_files}" | xargs -I {} dirname {} | sort -u | tr '\n' ',' | sed 's/,$//')
+                    if [ -n "${changed_dirs}" ]; then
+                        log "Changed directories: ${changed_dirs}"
                         CHANGES_EXTRA_VARS="${CHANGES_EXTRA_VARS} changed_dirs=${changed_dirs}"
                     fi
                 fi
@@ -241,6 +248,15 @@ fi
 
 # Manage git repository before running ansible
 manage_git_repository
+
+# In changes mode, exit early if no changes were detected
+if [ "${MODE}" = "changes" ]; then
+    # Check if changed_dirs was set (indicates changes were detected)
+    if [[ "${CHANGES_EXTRA_VARS}" != *"changed_dirs="* ]]; then
+        log "No changes detected in changes mode, exiting without running playbook"
+        exit 0
+    fi
+fi
 
 # Set Ansible configuration from config
 export ANSIBLE_HOST_KEY_CHECKING="${ANSIBLE_HOST_KEY_CHECKING}"

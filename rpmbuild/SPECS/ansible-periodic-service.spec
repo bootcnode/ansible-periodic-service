@@ -75,7 +75,7 @@ install -m 644 vault-setup.md %{buildroot}/usr/share/doc/ansible-periodic-servic
 /usr/lib/systemd/system/ansible-periodic-full.timer
 
 %post
-systemctl daemon-reload
+systemctl daemon-reload || true
 
 %preun
 if [ $1 = 0 ]; then
