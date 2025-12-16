@@ -559,12 +559,12 @@
         msg: "Completed {{ run_mode }} run: {{ filtered_task_files | length }} tasks, {{ filtered_system_quadlets_dirs | length }} system-quadlets, and {{ valid_users | default([]) | length }} user-quadlets processed{{ finally_task_file.stat.exists | ternary(' (including finally tasks)', '') }}"
 
   handlers:
-    # Include user-defined handlers from repository root (if it exists)
+    # Import user-defined handlers from repository root (if it exists)
     # The handlers.yml file should contain a list of handler definitions
-    # Note: include_tasks is used instead of deprecated include
-    # include_tasks supports variables in paths and works in handlers section
-    - include_tasks: "{{ user_repo_dir }}/handlers.yml"
-      when: global_handlers_file.stat.exists | default(false)
+    # Using import_tasks allows individual handlers to be notified by name
+    # import_tasks processes at parse time and supports variables in paths
+    # ignore_errors handles the case where the file doesn't exist
+    - ansible.builtin.import_tasks: "{{ user_repo_dir }}/handlers.yml"
       ignore_errors: yes
 
     - name: reload systemd daemon
